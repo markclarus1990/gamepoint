@@ -18,17 +18,23 @@ export async function GET(req) {
 
 // POST → create user
 export async function POST(req) {
-  const { name } = await req.json();
+  const { name, pin, email } = await req.json();
 
-  if (!name) return Response.json({ error: "Name required" });
+  if (!name || !pin) {
+    return Response.json({ error: "Name and PIN required" });
+  }
+
+  if (pin.length !== 4) {
+    return Response.json({ error: "PIN must be 4 digits" });
+  }
 
   const { data, error } = await supabase
     .from("users")
-    .insert({ name })
+    .insert({ name, pin, email })
     .select()
     .single();
 
-  if (error) return Response.json({ error: "User exists or error" });
+  if (error) return Response.json({ error: "User exists" });
 
   return Response.json(data);
 }

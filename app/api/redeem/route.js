@@ -3,27 +3,44 @@ import { supabase } from "@/lib/supabase";
 export async function POST(req) {
   const { name, points } = await req.json();
 
+  // 1. get user
   const { data: user } = await supabase
     .from("users")
     .select("*")
     .eq("name", name)
     .single();
 
-  if (!user) return Response.json({ error: "User not found" });
+  if (!user) {
+    return Response.json({ error: "User not found" });
+  }
 
-  if (points % 20 !== 0)
-    return Response.json({ error: "Must be multiple of 20" });
+  // 2. CHECK existing pending request
+  const { data: existing } = await supabase
+    .from("redeem_requests")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("status", "pending")
+    .maybeSingle();
 
-  if (points > user.points)
-    return Response.json({ error: "Not enough points" });
+  if (existing) {
+    return Response.json({
+      error: "You already have a pending request",
+    });
+  }
 
-  const minutes = (points / 20) * 8;
+  // 3. insert new request
+  const { error } = await supabase
+    .from("redeem_requests")
+    .insert({
+      user_id: user.id,
+      points_used: points,
+      minutes: points / 2.5,
+      status: "pending",
+    });
 
-  await supabase.from("redeem_requests").insert({
-    user_id: user.id,
-    points_used: points,
-    minutes,
-  });
+  if (error) {
+    return Response.json({ error: error.message });
+  }
 
   return Response.json({ success: true });
 }
