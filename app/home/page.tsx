@@ -11,7 +11,13 @@ export default function Home() {
   created_at: string;
   status?: string;
 };
-  const [user, setUser] = useState(null);
+type User = {
+  id: string;
+  name: string;
+  points: number;
+  avatar_url?: string;
+};
+ const [user, setUser] = useState<any>(null);
 const [history, setHistory] = useState<any[]>([]);
 
   const [fromDate, setFromDate] = useState("");
@@ -151,7 +157,7 @@ const [history, setHistory] = useState<any[]>([]);
     return <div className="text-white p-10">Loading...</div>;
   }
 console.log("redeem:", redeem);
-console.log("points:", user?.points);
+console.log("points:", user?.points ?? 0);
 
   return (
     <div className="min-h-screen bg-black text-white flex justify-center items-center">
