@@ -141,7 +141,7 @@ const filteredSessions = sessions.filter((s) => {
         });
 
         loadPending();
-        loadData();
+        // loadData();
       }}
       className="bg-green-600 px-3 py-1 rounded"
     >
