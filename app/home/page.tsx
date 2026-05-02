@@ -3,8 +3,17 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 export default function Home() {
+  type HistoryItem = {
+  id: string;
+  type: "session" | "redeem";
+  amount: number;
+  minutes: number;
+  created_at: string;
+  status?: string;
+};
   const [user, setUser] = useState(null);
-  const [history, setHistory] = useState([]);
+const [history, setHistory] = useState<any[]>([]);
+
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [redeem, setRedeem] = useState(20);
