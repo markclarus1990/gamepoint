@@ -1,40 +1,47 @@
 import { supabase } from "@/lib/supabase";
 
-// GET → find user only (no auto-create)
+// GET → find user + history
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
-  const name = searchParams.get("name");
+  const id = searchParams.get("id");
 
-  const { data } = await supabase
+  const { data: user } = await supabase
     .from("users")
     .select("*")
-    .eq("name", name)
+    .eq("id", id)
     .single();
 
-  if (!data) return Response.json({ error: "User not found" });
+  if (!user) return Response.json({ error: "User not found" });
 
-  return Response.json(data);
-}
+  // 🔥 ADD THIS BACK
+  const { data: sessions } = await supabase
+    .from("sessions")
+    .select("*")
+    .eq("user_name", user.name); // ✅ FIX
 
-// POST → create user
-export async function POST(req) {
-  const { name, pin, email } = await req.json();
+  const { data: redeems } = await supabase
+    .from("redeem_requests")
+    .select("*")
+    .eq("user_id", user.id);
 
-  if (!name || !pin) {
-    return Response.json({ error: "Name and PIN required" });
-  }
+  const formattedSessions = (sessions || []).map((s) => ({
+    ...s,
+    type: "session",
+    amount: s.amount,
+  }));
 
-  if (pin.length !== 4) {
-    return Response.json({ error: "PIN must be 4 digits" });
-  }
+  const formattedRedeems = (redeems || []).map((r) => ({
+    ...r,
+    type: "redeem",
+    amount: r.points_used,
+  }));
 
-  const { data, error } = await supabase
-    .from("users")
-    .insert({ name, pin, email })
-    .select()
-    .single();
+  const history = [...formattedSessions, ...formattedRedeems].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  );
 
-  if (error) return Response.json({ error: "User exists" });
-
-  return Response.json(data);
+  return Response.json({
+    user,
+    history, // ✅ BACK AGAIN
+  });
 }

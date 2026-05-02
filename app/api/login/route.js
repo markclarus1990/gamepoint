@@ -3,15 +3,24 @@ import { supabase } from "@/lib/supabase";
 export async function POST(req) {
   const { name, pin } = await req.json();
 
-  const { data: user } = await supabase
+  const { data: user, error } = await supabase
     .from("users")
     .select("*")
-    .eq("name", name)
+    .ilike("name", name) // ✅ case-insensitive
     .single();
 
-  if (!user || user.pin !== pin) {
-    return Response.json({ error: "Invalid credentials" });
+  if (error || !user) {
+    return Response.json({ error: "User not found" });
   }
 
-  return Response.json(user);
+  if (user.pin !== pin) {
+    return Response.json({ error: "Invalid PIN" });
+  }
+
+  // ✅ return only what frontend needs
+  return Response.json({
+    id: user.id,
+    name: user.name,
+    avatar_url: user.avatar_url,
+  });
 }

@@ -27,7 +27,8 @@ export default function Login() {
       alert(data.error);
     } else {
       localStorage.setItem("user", JSON.stringify(data));
-      window.location.href = "/";
+      console.log("LOGIN DATA:", data);
+      window.location.href = "/home";
     }
   };
 

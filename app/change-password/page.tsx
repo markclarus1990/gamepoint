@@ -1,67 +1,67 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { toast } from "react-toastify";
 
 export default function ChangePassword() {
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState(null);
-
-  // ✅ Load user from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem("user");
-    if (stored) {
-      setUser(JSON.parse(stored));
-    }
-  }, []);
+  const [oldPin, setOldPin] = useState("");
+  const [newPin, setNewPin] = useState("");
 
   const handleChange = async () => {
-    if (!password) return alert("Enter new PIN");
-    if (!user) return alert("User not found");
+    const stored = JSON.parse(localStorage.getItem("user"));
 
-    setLoading(true);
-
-    const res = await fetch("/api/change-pin", {
+    const res = await fetch("/api/change-password", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        user_id: user.id,
-        pin: password,
+        user_id: stored.id,
+        oldPin,
+        newPin,
       }),
     });
 
     const data = await res.json();
-    setLoading(false);
 
     if (data.error) {
-      alert(data.error);
+      toast.error(data.error);
     } else {
-      alert("PIN updated!");
-      window.location.href = "/";
+      toast.success("PIN updated!");
+      window.location.href = "/home";
     }
   };
 
   return (
-    <div className="p-6 max-w-sm mx-auto">
-      <h1 className="text-xl mb-4 font-semibold">Change PIN</h1>
+    <div className="min-h-screen flex items-center justify-center bg-black text-white">
+      <div className="bg-gray-900 p-6 rounded-xl w-full max-w-sm space-y-4">
+        <h2 className="text-lg font-semibold text-center">
+          Change PIN
+        </h2>
 
-      <input
-        type="password"
-        placeholder="New PIN"
-        className="border border-gray-600 p-2 w-full mb-3 rounded bg-transparent"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
+        <input
+          type="password"
+          placeholder="Old PIN"
+          value={oldPin}
+          onChange={(e) => setOldPin(e.target.value)}
+          className="w-full p-3 rounded bg-gray-800"
+        />
 
-      <button
-        onClick={handleChange}
-        disabled={loading}
-        className="w-full bg-blue-600 py-2 rounded text-white"
-      >
-        {loading ? "Saving..." : "Save PIN"}
-      </button>
+        <input
+          type="password"
+          placeholder="New PIN (4 digits)"
+          value={newPin}
+          onChange={(e) => setNewPin(e.target.value)}
+          className="w-full p-3 rounded bg-gray-800"
+        />
+
+        <button
+          onClick={handleChange}
+          className="w-full p-3 bg-purple-600 rounded"
+        >
+          Update PIN
+        </button>
+      </div>
     </div>
   );
 }

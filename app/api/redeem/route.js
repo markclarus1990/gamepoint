@@ -1,13 +1,13 @@
 import { supabase } from "@/lib/supabase";
 
 export async function POST(req) {
-  const { name, points } = await req.json();
+  const { user_id, points } = await req.json(); // ✅ FIXED
 
-  // 1. get user
+  // 1. get user (FIXED: use id instead of name)
   const { data: user } = await supabase
     .from("users")
     .select("*")
-    .eq("name", name)
+    .eq("id", user_id) // ✅ FIXED
     .single();
 
   if (!user) {
