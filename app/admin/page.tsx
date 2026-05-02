@@ -12,7 +12,17 @@ type Session = {
   minutes: number;
   created_at: string;
 };
-
+type Redeem = {
+  id: string;
+  user_id: string;
+  points_used: number;
+  minutes: number;
+  status: string;
+  created_at: string;
+  users?: {
+    name: string;
+  };
+};
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -22,7 +32,7 @@ export default function Admin() {
   const [amount, setAmount] = useState(0);
     const [fromDate, setFromDate] = useState("");
     const [toDate, setToDate] = useState("");
-    const [pending, setPending] = useState([]);
+const [pending, setPending] = useState<Redeem[]>([]);
     // Load Users
   const loadUsers = async () => {
     const res = await fetch("/api/users");
@@ -109,35 +119,37 @@ const filteredSessions = sessions.filter((s) => {
   {pending.length === 0 ? (
     <div className="text-gray-400">No pending requests</div>
   ) : (
-    pending.map((r) => (
-      <div
-        key={r.id}
-        className="bg-gray-800 p-3 rounded-lg mb-2 flex justify-between items-center"
-      >
-        <div>
-          <div className="font-semibold">{r.users?.name}</div>
-          <div className="text-sm text-gray-400">
-            {r.points_used} points • {r.minutes} mins
-          </div>
-        </div>
-
-        <button
-          onClick={async () => {
-            await fetch("/api/redeem/approve", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ request_id: r.id }),
-            });
-
-            loadPending();
-            loadData(); // refresh users/sessions
-          }}
-          className="bg-green-600 px-3 py-1 rounded"
-        >
-          Grant
-        </button>
+   pending.map((r) => (
+  <div key={r.id} className="bg-gray-800 p-3 rounded-lg mb-2 flex justify-between items-center">
+    
+    <div>
+      <div className="font-semibold">
+        {r.users?.name || "Unknown"}
       </div>
-    ))
+
+      <div className="text-sm text-gray-400">
+        {r.points_used} pts • {r.minutes} mins
+      </div>
+    </div>
+
+    <button
+      onClick={async () => {
+        await fetch("/api/redeem/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ request_id: r.id }),
+        });
+
+        loadPending();
+        loadData();
+      }}
+      className="bg-green-600 px-3 py-1 rounded"
+    >
+      Grant
+    </button>
+
+  </div>
+))
   )}
 </div>
       {/* LEFT PANEL */}
