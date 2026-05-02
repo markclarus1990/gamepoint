@@ -8,7 +8,7 @@ export default function ChangePassword() {
   const [newPin, setNewPin] = useState("");
 
   const handleChange = async () => {
-    const stored = JSON.parse(localStorage.getItem("user"));
+    const stored = JSON.parse(localStorage.getItem("user") ?? "{}");
 
     const res = await fetch("/api/change-password", {
       method: "POST",

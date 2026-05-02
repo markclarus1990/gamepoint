@@ -79,7 +79,7 @@ export default function Home() {
   console.log("REDEEM START");
 
   try {
-    const stored = JSON.parse(localStorage.getItem("user"));
+    const stored = JSON.parse(localStorage.getItem("user")!);
 
     console.log("USER:", stored);
 
@@ -113,7 +113,7 @@ export default function Home() {
     const file = e.target.files[0];
     if (!file) return;
 
-    const stored = JSON.parse(localStorage.getItem("user"));
+   const stored = JSON.parse(localStorage.getItem("user")!);
 
     const formData = new FormData();
     formData.append("file", file);
