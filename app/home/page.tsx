@@ -66,7 +66,7 @@ const [history, setHistory] = useState<any[]>([]);
     0
   );
 
- const formatTime = (mins) => {
+ const formatTime = (mins: number) => {
   if (!mins) return "0 mins";
 
   const hrs = Math.floor(mins / 60);
