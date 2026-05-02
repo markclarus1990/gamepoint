@@ -118,28 +118,28 @@ const [history, setHistory] = useState<any[]>([]);
   }
 };
   // CHANGE AVATAR
-  const changeAvatar = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+ const changeAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-   const stored = JSON.parse(localStorage.getItem("user")!);
+  const stored = JSON.parse(localStorage.getItem("user")!);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("user_id", stored.id);
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("user_id", stored.id);
 
-    const res = await fetch("/api/update-avatar", {
-      method: "POST",
-      body: formData,
-    });
+  const res = await fetch("/api/update-avatar", {
+    method: "POST",
+    body: formData,
+  });
 
-    const data = await res.json();
+  const data = await res.json();
 
-    setUser((prev) => ({
-      ...prev,
-      avatar_url: data.url,
-    }));
-  };
+  setUser((prev: any) => ({
+    ...prev,
+    avatar_url: data.url,
+  }));
+};
 
   // LOGOUT
   const logout = () => {
