@@ -73,10 +73,23 @@ export default function Login() {
 
       {/* CENTER WRAPPER */}
       {/* CENTER WRAPPER */}
-      <div className="relative z-10 flex items-center gap-8">
+    <div className="relative z-10 flex flex-col md:flex-row items-center justify-center gap-6 md:gap-8 w-full max-w-5xl">
 
         {/* LEFT LEADERBOARD */}
-        <div className="hidden md:block w-[190px] h-[430px] rounded-[30px] border-2 border-pink-500/80 bg-black/60 backdrop-blur-md overflow-hidden shadow-2xl">
+        <div className="
+w-full
+max-w-sm
+md:w-[190px]
+h-[220px]
+md:h-[430px]
+rounded-[30px]
+border-2
+border-pink-500/80
+bg-black/60
+backdrop-blur-md
+overflow-hidden
+shadow-2xl
+">
 
           {/* HEADER */}
           <div className="p-4 border-b border-pink-500/20">
@@ -90,7 +103,7 @@ export default function Login() {
           </div>
 
           {/* SCROLL AREA */}
-          <div className="relative h-[340px] overflow-hidden">
+          <div className="relative h-[140px] md:h-[340px] overflow-hidden">
 
             <div className="absolute w-full animate-scroll-up py-4 space-y-3">
 
@@ -108,7 +121,7 @@ export default function Login() {
           "https://placehold.co/100x100/png"
         }
         alt={player.name}
-        className="w-12 h-12 rounded-full object-cover border-2 border-pink-500 shadow-lg shadow-pink-500/30"
+    className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover border-2 border-pink-500 shadow-lg shadow-pink-500/30"
       />
 
       {/* INFO */}
