@@ -5,8 +5,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("users")
     .select("id, name, points, avatar_url")
-    .order("points", { ascending: false })
-    .limit(10);
+    .order("points", { ascending: false });
 
   if (error) {
     return Response.json([]);
