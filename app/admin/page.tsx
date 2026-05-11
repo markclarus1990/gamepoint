@@ -30,9 +30,20 @@ export default function Admin() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [amount, setAmount] = useState(0);
-    const [fromDate, setFromDate] = useState("");
-    const [toDate, setToDate] = useState("");
-const [pending, setPending] = useState<Redeem[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [pending, setPending] = useState<Redeem[]>([]);
+  const [authorized, setAuthorized] = useState(false);
+  useEffect(() => {
+    const isAdmin = localStorage.getItem("isAdmin");
+
+    if (isAdmin !== "true") {
+      window.location.href = "/login";
+    } else {
+      setAuthorized(true);
+    }
+  }, []);
+  
     // Load Users
   const loadUsers = async () => {
     const res = await fetch("/api/users");
