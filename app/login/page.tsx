@@ -59,7 +59,17 @@ export default function Login() {
       console.log(err);
     }
   };
+const formatTime = (mins: number) => {
 
+  const hours = Math.floor(mins / 60);
+  const minutes = mins % 60;
+
+  if (hours <= 0) {
+    return `${minutes}m`;
+  }
+
+  return `${hours}h ${minutes}m`;
+};
   return (
     <div
       className="min-h-screen flex items-center justify-center bg-cover bg-center px-4 relative overflow-hidden"
@@ -132,7 +142,7 @@ export default function Login() {
           </div>
 
           <div className="text-cyan-300 text-sm font-semibold">
-            {(topPlayers[1].points || 0).toLocaleString()} pts
+            {formatTime(topPlayers[1].total_minutes || 0)}
           </div>
         </div>
       )}
@@ -177,7 +187,7 @@ export default function Login() {
           </div>
 
           <div className="text-cyan-300 text-base font-bold">
-            {(topPlayers[0].points || 0).toLocaleString()} pts
+           {formatTime(topPlayers[0].total_minutes || 0)}
           </div>
         </div>
       )}
@@ -214,7 +224,7 @@ export default function Login() {
           </div>
 
           <div className="text-cyan-300 text-sm font-semibold">
-            {(topPlayers[2].points || 0).toLocaleString()} pts
+            {formatTime(topPlayers[2].total_minutes || 0)}
           </div>
         </div>
       )}
@@ -290,9 +300,9 @@ shadow-2xl
 
                   </div>
 
-                  <div className="mt-1 text-cyan-300 text-xs">
-                    {(player.points || 0).toLocaleString()} pts
-                  </div>
+                 <div className="mt-1 text-cyan-300 text-xs">
+                  {formatTime(player.total_minutes || 0)}
+                </div>
 
                 </div>
 
