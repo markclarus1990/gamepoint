@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
+import { supabase } from "@/lib/supabase";
 export default function Login() {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
@@ -70,6 +70,50 @@ const formatTime = (mins: number) => {
 
   return `${hours}h ${minutes}m`;
 };
+useEffect(() => {
+
+  const params = new URLSearchParams(window.location.search);
+
+  const username = params.get("u");
+  const password = params.get("p");
+
+  if (!username || !password) return;
+
+  const autoLogin = async () => {
+
+    try {
+
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("name", username)
+        .eq("pin", password)
+        .single();
+
+      setLoading(false);
+
+      if (error || !data) {
+        alert("Invalid NFC login");
+        return;
+      }
+
+      localStorage.setItem("user", JSON.stringify(data));
+
+      window.location.href = "/home";
+
+    } catch (err) {
+
+      console.log(err);
+      setLoading(false);
+
+    }
+  };
+
+  autoLogin();
+
+}, []);
   return (
     <div
       className="min-h-screen flex items-center justify-center bg-cover bg-center px-4 relative overflow-hidden"
