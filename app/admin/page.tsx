@@ -50,12 +50,12 @@ export default function Admin() {
     setUsers(await res.json());
   };
 
-//   Load Sessions
-  const loadSessions = async (name: string) => {
-    const res = await fetch(`/api/sessions?name=${name}`);
-    setSessions(await res.json());
-  };
+const loadSessions = async (id: string) => {
+  const res = await fetch(`/api/sessions?id=${id}`);
+  const data = await res.json();
 
+  setSessions(data.history || []);
+};
 //   Load Pending Request
 const loadPending = async () => {
   const res = await fetch("/api/redeem/pending");
