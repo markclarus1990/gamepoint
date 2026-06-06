@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 
 type User = {
+    id: string;
   name: string;
   points: number;
 };
@@ -70,10 +71,10 @@ useEffect(() => {
     loadUsers();
   }, []);
 
-  const openHistory = (user: User) => {
-    setSelectedUser(user);
-    loadSessions(user.name);
-  };
+const openHistory = (user: User) => {
+  setSelectedUser(user);
+  loadSessions(user.id);
+};
 
   const addSession = async () => {
     if (!selectedUser || amount <= 0) return;
