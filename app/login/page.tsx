@@ -417,12 +417,24 @@ shadow-2xl
           {loading ? "Logging in..." : "Login"}
         </button>
 
-        <p className="text-center text-gray-400 text-sm mt-4">
-          No account?{" "}
-          <a href="/register" className="text-purple-400 hover:underline">
-            Register
-          </a>
-        </p>
+     <div className="mt-4 space-y-3">
+  <p className="text-center text-gray-400 text-sm">
+    No account?{" "}
+    <a
+      href="/register"
+      className="text-purple-400 hover:underline"
+    >
+      Register
+    </a>
+  </p>
+
+  <a
+    href="/tekken"
+    className="block w-full text-center py-3 rounded-xl font-bold text-white bg-gradient-to-r from-red-600 to-orange-500 hover:scale-[1.02] active:scale-[0.98] transition duration-200 shadow-lg"
+  >
+    🏆 View Tekken Tournament
+  </a>
+</div>
 
       </div>
     </div>
