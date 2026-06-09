@@ -180,7 +180,12 @@ const filteredSessions = sessions.filter((s) => {
           {filteredUsers.map((u, i) => (
             <div key={i} className="flex justify-between items-center bg-gray-800 p-2 rounded">
 
-              <span>{u.name}</span>
+             <div>
+              <div>{u.name}</div>
+              <div className="text-xs text-yellow-400">
+                {u.points || 0} pts
+              </div>
+            </div>
 
               <div className="flex gap-2">
                 <button

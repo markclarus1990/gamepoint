@@ -187,12 +187,12 @@ console.log("points:", user?.points ?? 0);
               <div className="text-lg font-semibold">{user?.name}</div>
             </div>
           </div>
-<button
-  onClick={() => (window.location.href = "/change-password")}
-  className="bg-yellow-500 px-3 py-1 rounded text-sm"
->
-  Change PIN
-</button>
+          <button
+            onClick={() => (window.location.href = "/change-password")}
+            className="bg-yellow-500 px-3 py-1 rounded text-sm"
+          >
+            Change PIN
+          </button>
           <button
             onClick={logout}
             className="text-xs bg-red-600 px-3 py-1 rounded"
