@@ -9,7 +9,7 @@ export async function POST(req) {
     amount,
     minutes,
     points,
-    user_id
+  
   });
 
   // 2. Add points to user

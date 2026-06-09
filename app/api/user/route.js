@@ -19,10 +19,10 @@ export async function GET(req) {
   }
 
   // SESSIONS
-  const { data: sessions } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("user_id", user.id);
+const { data: sessions } = await supabase
+  .from("sessions")
+  .select("*")
+  .eq("user_name", user.name);
 
   // REDEEMS
   const { data: redeems } = await supabase
