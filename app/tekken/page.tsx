@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { supabase } from "@/lib/supabase";
 
 export default async function TekkenPage() {
@@ -225,8 +227,8 @@ return (
 
               <div>
                 {player?.avatar_url ? (
-                  <img
-                    src={player.avatar_url}
+                <img
+                    src={`${player.avatar_url}?t=${Date.now()}`}
                     alt={player.name}
                     className="w-14 h-14 rounded-full object-cover border border-zinc-700"
                   />
