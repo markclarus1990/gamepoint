@@ -31,7 +31,13 @@ const playerSlots = Array.from(
   (_, index) => orderedPlayers[index] || null
 );
 
-  return (
+console.log("Registrations:", registrations);
+console.log("User IDs:", userIds);
+console.log("Players:", players);
+console.log("Ordered Players:", orderedPlayers);
+console.log("Registered Count:", registeredCount);
+
+return (
     <div className="max-w-7xl mx-auto p-6 space-y-8">
     {/* Hero */}
 <div
