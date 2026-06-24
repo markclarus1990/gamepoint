@@ -188,6 +188,12 @@ console.log("points:", user?.points ?? 0);
             </div>
           </div>
           <button
+            onClick={() => (window.location.href = "/chat")}
+            className="bg-purple-600 px-3 py-1 rounded text-sm"
+          >
+            Support
+          </button>
+          <button
             onClick={() => (window.location.href = "/change-password")}
             className="bg-yellow-500 px-3 py-1 rounded text-sm"
           >

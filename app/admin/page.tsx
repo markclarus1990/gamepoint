@@ -124,7 +124,17 @@ const filteredSessions = sessions.filter((s) => {
 });
 
   return (
-    <div className="min-h-screen bg-black text-white p-6 flex gap-6">
+    <div className="min-h-screen bg-black text-white p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-bold text-white">Admin Dashboard</h1>
+        <button
+          onClick={() => (window.location.href = "/admin/chat")}
+          className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          Messages
+        </button>
+      </div>
+      <div className="flex gap-6">
 <div className="bg-gray-900 p-4 rounded-xl">
   <h2 className="font-semibold mb-3">Redeem Requests</h2>
 
@@ -359,6 +369,7 @@ const filteredSessions = sessions.filter((s) => {
         </div>
       )}
 
+      </div>
     </div>
   );
 }
