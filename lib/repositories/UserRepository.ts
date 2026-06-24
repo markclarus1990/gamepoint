@@ -57,16 +57,22 @@ export class UserRepository {
     if (error) throw error;
   }
 
-  async findAll(orderBy?: string): Promise<User[]> {
-    let query = supabase.from("users").select("*");
+  async findAll(orderBy?: string, page?: number, pageSize?: number): Promise<{ data: User[]; total: number }> {
+    let query = supabase.from("users").select("*", { count: "exact" });
     if (orderBy) {
       query = query.order(orderBy, { ascending: false });
     }
-    const { data } = await query;
-    return data || [];
+    if (page !== undefined && pageSize !== undefined) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+    const { data, count } = await query;
+    return { data: data || [], total: count ?? 0 };
   }
 
   async findNamesWithAvatars(names: string[]): Promise<Pick<User, "name" | "avatar_url">[]> {
+    if (names.length === 0) return [];
     const { data } = await supabase
       .from("users")
       .select("name, avatar_url")
