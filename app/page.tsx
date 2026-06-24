@@ -72,8 +72,8 @@ export default function LandingPage() {
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/60 to-[#020617]" />
 
-        <div className="relative z-10 text-center px-4 max-w-4xl mx-auto pt-20">
-          <div className="inline-flex items-center gap-2 rounded-full border border-pink-500/30 bg-pink-500/10 px-4 py-1 text-sm text-pink-400 mb-6">
+        <div className="relative z-10 text-center px-4 max-w-4xl mx-auto">
+          <div className="inline-flex items-center gap-2 rounded-full border border-pink-500/30 bg-pink-500/10 backdrop-blur-sm px-4 py-1 text-sm text-pink-400 mb-6">
             <Gamepad2 className="w-4 h-4" />
             GamePoint Internet Cafe
           </div>
@@ -86,7 +86,7 @@ export default function LandingPage() {
             INTERNET CAFE
           </p>
 
-          <p className="text-base md:text-lg text-gray-400 max-w-2xl mx-auto mb-8">
+          <p className="text-base md:text-lg text-gray-300 max-w-2xl mx-auto mb-8">
             Your premium gaming destination. Track sessions, earn points,
             compete in tournaments, and level up your gaming experience.
           </p>
@@ -109,10 +109,10 @@ export default function LandingPage() {
       </section>
 
       {/* FEATURES */}
-      <section className="py-20 md:py-28 px-4">
+      <section className="py-16 md:py-20 px-4">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-black text-white mb-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-3">
               Why <span className="text-pink-500">GamePoint</span>?
             </h2>
             <p className="text-gray-400 max-w-xl mx-auto">
@@ -120,17 +120,17 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             {features.map((f) => (
               <div
                 key={f.title}
-                className="rounded-2xl border border-white/10 bg-white/5 p-6 hover:border-pink-500/30 hover:bg-white/10 transition-all group"
+                className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-md p-6 hover:border-pink-500/40 hover:bg-black/60 transition-all group"
               >
                 <div className="w-12 h-12 rounded-xl bg-pink-500/10 flex items-center justify-center mb-4 group-hover:bg-pink-500/20 transition-colors">
                   <f.icon className="w-6 h-6 text-pink-400" />
                 </div>
                 <h3 className="text-lg font-bold text-white mb-2">{f.title}</h3>
-                <p className="text-sm text-gray-400">{f.desc}</p>
+                <p className="text-sm text-gray-300">{f.desc}</p>
               </div>
             ))}
           </div>
@@ -138,29 +138,29 @@ export default function LandingPage() {
       </section>
 
       {/* TOURNAMENT PREVIEW */}
-      <section className="py-20 md:py-28 px-4 bg-white/[0.02]">
+      <section className="py-16 md:py-20 px-4">
         <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col lg:flex-row items-center gap-12">
-            <div className="flex-1">
-              <div className="inline-flex items-center rounded-full border border-red-500/30 bg-red-500/10 px-4 py-1 text-sm text-red-400 mb-4">
+          <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
+            <div className="flex-1 w-full">
+              <div className="inline-flex items-center rounded-full border border-red-500/30 bg-red-500/10 backdrop-blur-sm px-4 py-1 text-sm text-red-400 mb-4">
                 <Swords className="w-4 h-4 mr-2" /> Active Tournament
               </div>
-              <h2 className="text-3xl md:text-4xl font-black text-white mb-4">
+              <h2 className="text-3xl md:text-4xl font-black text-white mb-3">
                 TEKKEN 7 — SEASON 1
               </h2>
-              <p className="text-gray-400 mb-6">
+              <p className="text-gray-300 mb-5">
                 Battle every competitor in a full Round Robin format. The player
                 with the best overall record will be crowned the first GamePoint
                 Tekken 7 Champion.
               </p>
-              <div className="flex flex-wrap gap-4 mb-8">
-                <span className="rounded-full border border-zinc-700 bg-black/40 px-4 py-2 text-sm">
+              <div className="flex flex-wrap gap-3 mb-6">
+                <span className="rounded-full border border-zinc-700 bg-black/40 backdrop-blur-sm px-4 py-2 text-sm text-gray-300">
                   Entry Fee ₱50
                 </span>
-                <span className="rounded-full border border-zinc-700 bg-black/40 px-4 py-2 text-sm">
+                <span className="rounded-full border border-zinc-700 bg-black/40 backdrop-blur-sm px-4 py-2 text-sm text-gray-300">
                   Round Robin
                 </span>
-                <span className="rounded-full border border-zinc-700 bg-black/40 px-4 py-2 text-sm">
+                <span className="rounded-full border border-zinc-700 bg-black/40 backdrop-blur-sm px-4 py-2 text-sm text-gray-300">
                   8 Players
                 </span>
               </div>
@@ -173,26 +173,26 @@ export default function LandingPage() {
             </div>
 
             <div className="flex-1 w-full max-w-md">
-              <div className="rounded-2xl border border-red-500/20 bg-red-950/10 p-8 text-center">
-                <div className="text-6xl mb-4">🏆</div>
-                <h3 className="text-2xl font-bold text-white mb-2">
+              <div className="rounded-2xl border border-red-500/20 bg-black/40 backdrop-blur-md p-6 md:p-8 text-center">
+                <div className="text-5xl md:text-6xl mb-4">🏆</div>
+                <h3 className="text-xl md:text-2xl font-bold text-white mb-2">
                   Champion TBD
                 </h3>
-                <p className="text-sm text-zinc-400">
+                <p className="text-sm text-gray-400">
                   Season 1 registration is open. Sign up now to claim your spot.
                 </p>
                 <div className="mt-6 grid grid-cols-3 gap-4 text-center">
                   <div>
                     <div className="text-2xl font-bold text-white">8</div>
-                    <div className="text-xs text-zinc-500">Slots</div>
+                    <div className="text-xs text-gray-400">Slots</div>
                   </div>
                   <div>
                     <div className="text-2xl font-bold text-white">28</div>
-                    <div className="text-xs text-zinc-500">Matches</div>
+                    <div className="text-xs text-gray-400">Matches</div>
                   </div>
                   <div>
                     <div className="text-2xl font-bold text-yellow-400">🏆</div>
-                    <div className="text-xs text-zinc-500">Champion</div>
+                    <div className="text-xs text-gray-400">Champion</div>
                   </div>
                 </div>
               </div>
@@ -202,13 +202,13 @@ export default function LandingPage() {
       </section>
 
       {/* TOP PLAYERS */}
-      <section id="top-players" className="py-20 md:py-28 px-4">
+      <section id="top-players" className="py-16 md:py-20 px-4">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-4 py-1 text-sm text-yellow-400 mb-4">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 backdrop-blur-sm px-4 py-1 text-sm text-yellow-400 mb-4">
               <Trophy className="w-4 h-4" /> Leaderboard
             </div>
-            <h2 className="text-3xl md:text-4xl font-black text-white mb-4">
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-3">
               Top <span className="text-pink-500">Players</span>
             </h2>
             <p className="text-gray-400 max-w-xl mx-auto">
@@ -217,81 +217,99 @@ export default function LandingPage() {
           </div>
 
           {/* TOP 3 PODIUM */}
-          <div className="flex flex-col md:flex-row items-end justify-center gap-6 mb-16">
-            {[1, 0, 2].map((pos) => {
-              const p = topPlayers[pos];
-              if (!p) return null;
-              const isFirst = pos === 0;
-              return (
-                <div
-                  key={pos}
-                  className={`flex flex-col items-center ${isFirst ? "md:-mt-6" : ""}`}
-                >
-                  <div
-                    className={`font-black mb-2 ${
-                      isFirst ? "text-yellow-400 text-4xl" : "text-3xl"
-                    }`}
-                  >
-                    {pos === 0 ? "1ST" : pos === 1 ? "2ND" : "3RD"}
-                  </div>
-                  <img
-                    src={
-                      p.avatar_url || "https://placehold.co/100x100/png"
-                    }
-                    alt={p.name}
-                    className={`rounded-full object-cover border-4 ${
-                      isFirst
-                        ? "w-28 h-28 border-yellow-400 shadow-xl shadow-yellow-500/40"
-                        : "w-20 h-20 border-pink-400 shadow-lg shadow-pink-500/40"
-                    }`}
-                  />
-                  <div className="text-white font-bold truncate max-w-[120px] mt-2">
-                    {p.name}
-                  </div>
-                  <div className="text-cyan-300 text-sm font-semibold">
-                    {formatTime(p.total_minutes)}
-                  </div>
+          <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-8 mb-12">
+            {topPlayers[1] && (
+              <div className="flex flex-col items-center order-2 md:order-1">
+                <div className="font-black text-2xl md:text-3xl text-pink-400 mb-2">
+                  2ND
                 </div>
-              );
-            })}
+                <img
+                  src={topPlayers[1].avatar_url || "https://placehold.co/100x100/png"}
+                  alt={topPlayers[1].name}
+                  className="w-20 h-20 rounded-full object-cover border-4 border-pink-400 shadow-lg shadow-pink-500/40"
+                />
+                <div className="text-white font-bold truncate max-w-[120px] mt-2">
+                  {topPlayers[1].name}
+                </div>
+                <div className="text-cyan-300 text-sm font-semibold">
+                  {formatTime(topPlayers[1].total_minutes)}
+                </div>
+              </div>
+            )}
+
+            {topPlayers[0] && (
+              <div className="flex flex-col items-center order-1 md:order-2 md:-mt-8">
+                <div className="font-black text-3xl md:text-4xl text-yellow-400 mb-2">
+                  1ST
+                </div>
+                <img
+                  src={topPlayers[0].avatar_url || "https://placehold.co/100x100/png"}
+                  alt={topPlayers[0].name}
+                  className="w-28 h-28 rounded-full object-cover border-4 border-yellow-400 shadow-xl shadow-yellow-500/40"
+                />
+                <div className="text-white font-black text-lg truncate max-w-[120px] mt-2">
+                  {topPlayers[0].name}
+                </div>
+                <div className="text-cyan-300 text-base font-bold">
+                  {formatTime(topPlayers[0].total_minutes)}
+                </div>
+              </div>
+            )}
+
+            {topPlayers[2] && (
+              <div className="flex flex-col items-center order-3">
+                <div className="font-black text-2xl md:text-3xl text-orange-400 mb-2">
+                  3RD
+                </div>
+                <img
+                  src={topPlayers[2].avatar_url || "https://placehold.co/100x100/png"}
+                  alt={topPlayers[2].name}
+                  className="w-20 h-20 rounded-full object-cover border-4 border-orange-400 shadow-lg shadow-orange-500/40"
+                />
+                <div className="text-white font-bold truncate max-w-[120px] mt-2">
+                  {topPlayers[2].name}
+                </div>
+                <div className="text-cyan-300 text-sm font-semibold">
+                  {formatTime(topPlayers[2].total_minutes)}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* SCROLLING LEADERBOARD */}
-          <div className="max-w-lg mx-auto rounded-[32px] border-2 border-pink-500/80 bg-black/60 backdrop-blur-md overflow-hidden shadow-2xl">
+          <div className="w-full max-w-lg mx-auto rounded-[32px] border-2 border-pink-500/80 bg-black/60 backdrop-blur-md overflow-hidden shadow-2xl">
             <div className="p-4 border-b border-pink-500/20 text-center">
               <h3 className="text-white font-black text-lg tracking-wider">
                 <Users className="w-4 h-4 inline mr-2 text-pink-400" />
                 ALL PLAYERS
               </h3>
             </div>
-            <div className="relative h-[300px] overflow-hidden">
+            <div className="relative h-[280px] md:h-[300px] overflow-hidden">
               <div className="absolute w-full animate-scroll-up py-4 space-y-3">
-                {[...topPlayers, ...topPlayers].map((player, i) => (
-                  <div
-                    key={`${player.name}-${i}`}
-                    className="mx-3 rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-sm"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-pink-400 font-black text-sm min-w-[24px]">
-                        #{(i % topPlayers.length) + 1}
-                      </span>
-                      <img
-                        src={
-                          player.avatar_url ||
-                          "https://placehold.co/100x100/png"
-                        }
-                        alt={player.name}
-                        className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
-                      />
-                      <span className="text-white font-semibold text-sm flex-1 truncate">
-                        {player.name}
-                      </span>
-                      <span className="text-cyan-300 text-xs font-semibold">
-                        {formatTime(player.total_minutes || 0)}
-                      </span>
+                {topPlayers.length > 0 &&
+                  [...topPlayers, ...topPlayers].map((player, i) => (
+                    <div
+                      key={`${player.name}-${i}`}
+                      className="mx-3 rounded-2xl border border-white/10 bg-black/40 backdrop-blur-sm p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-pink-400 font-black text-sm min-w-[24px]">
+                          #{(i % topPlayers.length) + 1}
+                        </span>
+                        <img
+                          src={player.avatar_url || "https://placehold.co/100x100/png"}
+                          alt={player.name}
+                          className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
+                        />
+                        <span className="text-white font-semibold text-sm flex-1 truncate">
+                          {player.name}
+                        </span>
+                        <span className="text-cyan-300 text-xs font-semibold whitespace-nowrap">
+                          {formatTime(player.total_minutes || 0)}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
           </div>
@@ -299,9 +317,9 @@ export default function LandingPage() {
       </section>
 
       {/* FOOTER */}
-      <footer id="footer" className="border-t border-white/10 bg-black/50 px-4 py-12">
+      <footer id="footer" className="border-t border-white/10 bg-black/60 backdrop-blur-md px-4 py-10 md:py-12">
         <div className="max-w-6xl mx-auto">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <Gamepad2 className="w-5 h-5 text-pink-500" />
@@ -309,7 +327,7 @@ export default function LandingPage() {
                   GAME<span className="text-pink-500">POINT</span>
                 </span>
               </div>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-400">
                 Your premium gaming destination for competitive play and
                 unforgettable experiences.
               </p>
@@ -317,7 +335,7 @@ export default function LandingPage() {
 
             <div>
               <h4 className="text-sm font-bold text-white mb-4">Quick Links</h4>
-              <div className="space-y-2 text-sm text-gray-500">
+              <div className="space-y-2 text-sm text-gray-400">
                 <div>
                   <Link href="/" className="hover:text-pink-400 transition-colors">
                     Home
@@ -344,7 +362,7 @@ export default function LandingPage() {
 
             <div>
               <h4 className="text-sm font-bold text-white mb-4">Account</h4>
-              <div className="space-y-2 text-sm text-gray-500">
+              <div className="space-y-2 text-sm text-gray-400">
                 <div>
                   <Link href="/login" className="hover:text-pink-400 transition-colors">
                     Login
@@ -363,14 +381,14 @@ export default function LandingPage() {
 
             <div>
               <h4 className="text-sm font-bold text-white mb-4">Contact</h4>
-              <div className="space-y-2 text-sm text-gray-500">
+              <div className="space-y-2 text-sm text-gray-400">
                 <p>GamePoint Internet Cafe</p>
                 <p>Your Local Gaming Spot</p>
               </div>
             </div>
           </div>
 
-          <div className="border-t border-white/10 pt-8 text-center text-sm text-gray-600">
+          <div className="border-t border-white/10 pt-8 text-center text-sm text-gray-500">
             &copy; {new Date().getFullYear()} GamePoint. All rights reserved.
           </div>
         </div>
