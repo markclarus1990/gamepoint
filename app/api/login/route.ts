@@ -5,11 +5,11 @@ const authService = new AuthService();
 export async function POST(req: Request) {
   const { name, pin } = await req.json();
 
-  const result = await authService.register(name, pin);
+  const result = await authService.login(name, pin);
 
   if ("error" in result) {
-    return Response.json({ error: result.error }, { status: result.status });
+    return Response.json({ error: result.error });
   }
 
-  return Response.json({ success: true });
+  return Response.json(result);
 }
