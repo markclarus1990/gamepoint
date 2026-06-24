@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Menu, X, Gamepad2, MessageCircle, LayoutDashboard, LogOut, Mail } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import {
+  Menu, X, Gamepad2, MessageCircle, LayoutDashboard,
+  LogOut, Mail, Swords, Trophy, User, Settings, ChevronDown,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -11,8 +14,10 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [userName, setUserName] = useState("");
+  const [user, setUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setOpen(false);
@@ -22,10 +27,19 @@ export default function DashboardLayout({
     const stored = localStorage.getItem("user");
     if (stored) {
       try {
-        const parsed = JSON.parse(stored);
-        setUserName(parsed.name || "");
+        setUser(JSON.parse(stored));
       } catch {}
     }
+  }, []);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
   const logout = () => {
@@ -37,7 +51,14 @@ export default function DashboardLayout({
   const navLinks = [
     { label: "Dashboard", href: "/home", icon: LayoutDashboard },
     { label: "Messages", href: "/messages", icon: Mail },
+    { label: "Tournaments", href: "/tekken", icon: Swords },
+    { label: "Leaderboard", href: "/#top-players", icon: Trophy },
+  ];
+
+  const profileLinks = [
+    { label: "Profile", href: "/home", icon: User },
     { label: "Support", href: "/chat", icon: MessageCircle },
+    { label: "Change PIN", href: "/change-password", icon: Settings },
   ];
 
   return (
@@ -73,16 +94,51 @@ export default function DashboardLayout({
             </div>
 
             <div className="hidden md:flex items-center gap-3">
-              {userName && (
-                <span className="text-xs text-zinc-500">{userName}</span>
-              )}
-              <button
-                onClick={logout}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Logout
-              </button>
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setProfileOpen(!profileOpen)}
+                  className="flex items-center gap-2 p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden">
+                    {user?.avatar_url ? (
+                      <img src={user.avatar_url} className="w-full h-full object-cover" />
+                    ) : (
+                      user?.name?.charAt(0).toUpperCase() || "?"
+                    )}
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+                </button>
+
+                {profileOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl shadow-black/50 py-1.5 z-50">
+                    <div className="px-3 py-2 border-b border-zinc-800">
+                      <div className="text-sm font-semibold text-white truncate">
+                        {user?.name || "Player"}
+                      </div>
+                      <div className="text-[10px] text-zinc-500">Player</div>
+                    </div>
+                    {profileLinks.map((link) => (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        onClick={() => setProfileOpen(false)}
+                        className="flex items-center gap-3 px-3 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                      >
+                        <link.icon className="w-4 h-4" />
+                        {link.label}
+                      </Link>
+                    ))}
+                    <hr className="border-zinc-800 my-1" />
+                    <button
+                      onClick={logout}
+                      className="flex items-center gap-3 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <button
@@ -117,9 +173,23 @@ export default function DashboardLayout({
                 );
               })}
               <hr className="border-zinc-800 my-2" />
-              {userName && (
-                <div className="px-3 py-2 text-xs text-zinc-500">{userName}</div>
-              )}
+              <div className="px-3 py-2 flex items-center gap-3">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-pink-600 to-purple-600 flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+                  {user?.name?.charAt(0).toUpperCase() || "?"}
+                </div>
+                <div className="text-xs text-zinc-500 truncate">{user?.name || "Player"}</div>
+              </div>
+              {profileLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                >
+                  <link.icon className="w-4 h-4" />
+                  {link.label}
+                </Link>
+              ))}
               <button
                 onClick={logout}
                 className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
