@@ -147,12 +147,6 @@ const [history, setHistory] = useState<any[]>([]);
   }));
 };
 
-  // LOGOUT
-  const logout = () => {
-    localStorage.removeItem("user");
-    window.location.href = "/login";
-  };
-
   if (loading) {
     return <div className="text-white p-10">Loading...</div>;
   }
@@ -187,30 +181,7 @@ console.log("points:", user?.points ?? 0);
               <div className="text-lg font-semibold">{user?.name}</div>
             </div>
           </div>
-          <button
-            onClick={() => (window.location.href = "/messages")}
-            className="bg-cyan-600 px-3 py-1 rounded text-sm"
-          >
-            Messages
-          </button>
-          <button
-            onClick={() => (window.location.href = "/chat")}
-            className="bg-purple-600 px-3 py-1 rounded text-sm"
-          >
-            Support
-          </button>
-          <button
-            onClick={() => (window.location.href = "/change-password")}
-            className="bg-yellow-500 px-3 py-1 rounded text-sm"
-          >
-            Change PIN
-          </button>
-          <button
-            onClick={logout}
-            className="text-xs bg-red-600 px-3 py-1 rounded"
-          >
-            Logout
-          </button>
+
 
 
         </div>
