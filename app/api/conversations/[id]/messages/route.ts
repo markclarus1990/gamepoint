@@ -8,9 +8,15 @@ export async function GET(
 ) {
   const { id } = await params;
   const { searchParams } = new URL(req.url);
-  const role = searchParams.get("role") as "player" | "admin" | null;
+  const role = searchParams.get("role") as "player" | "admin" | "direct" | null;
+  const userId = searchParams.get("userId");
 
-  const messages = await chatService.getMessages(id, role ?? "player");
+  if (role === "direct" && userId) {
+    const messages = await chatService.getDirectMessages(id, userId);
+    return Response.json(messages);
+  }
+
+  const messages = await chatService.getMessages(id, (role ?? "player") as "player" | "admin");
   return Response.json(messages);
 }
 

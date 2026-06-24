@@ -5,7 +5,7 @@ export class MessageRepository {
   async findByConversationId(conversationId: string): Promise<Message[]> {
     const { data } = await supabase
       .from("messages")
-      .select("*")
+      .select("*, users(name, avatar_url)")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true });
     return data || [];
@@ -20,7 +20,7 @@ export class MessageRepository {
     const { data: message, error } = await supabase
       .from("messages")
       .insert(data)
-      .select()
+      .select("*, users(name, avatar_url)")
       .single();
     if (error) throw error;
     return message;
@@ -35,6 +35,18 @@ export class MessageRepository {
       .update({ read_at: new Date().toISOString() })
       .eq("conversation_id", conversationId)
       .eq("sender_role", senderRole)
+      .is("read_at", null);
+  }
+
+  async markDirectMessagesAsRead(
+    conversationId: string,
+    userId: string
+  ): Promise<void> {
+    await supabase
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", userId)
       .is("read_at", null);
   }
 }
