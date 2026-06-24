@@ -28,10 +28,11 @@ export class SessionRepository {
     await supabase.from("sessions").insert(data);
   }
 
-  async findAllWithMinutes(): Promise<Pick<Session, "user_name" | "minutes">[]> {
-    const { data } = await supabase
-      .from("sessions")
-      .select("user_name, minutes");
+  async findAllWithMinutes(limit?: number, offset?: number): Promise<Pick<Session, "user_name" | "minutes">[]> {
+    let query = supabase.from("sessions").select("user_name, minutes");
+    if (limit) query = query.limit(limit);
+    if (offset) query = query.range(offset, offset + (limit ?? 1000) - 1);
+    const { data } = await query;
     return data || [];
   }
 }

@@ -35,8 +35,8 @@ export class RedeemService {
     }
   }
 
-  async getPending(): Promise<RedeemRequest[]> {
-    return this.redeemRepo.findPending();
+  async getPending(page?: number, pageSize?: number): Promise<{ data: RedeemRequest[]; total: number }> {
+    return this.redeemRepo.findPending(page, pageSize);
   }
 
   async approve(

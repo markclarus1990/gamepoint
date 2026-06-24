@@ -10,13 +10,21 @@ export class RedeemRepository {
     return data || [];
   }
 
-  async findPending(): Promise<RedeemRequest[]> {
-    const { data } = await supabase
+  async findPending(page?: number, pageSize?: number): Promise<{ data: RedeemRequest[]; total: number }> {
+    let query = supabase
       .from("redeem_requests")
-      .select("*, users(name)")
+      .select("*, users(name)", { count: "exact" })
       .eq("status", "pending")
       .order("created_at", { ascending: false });
-    return data || [];
+
+    if (page !== undefined && pageSize !== undefined) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, count } = await query;
+    return { data: data || [], total: count ?? 0 };
   }
 
   async findById(id: string): Promise<RedeemRequest | null> {

@@ -8,8 +8,8 @@ export class LeaderboardService {
   private sessionRepo = new SessionRepository();
   private userRepo = new UserRepository();
 
-  async getTopPlayers(): Promise<LeaderboardEntry[]> {
-    const sessions = await this.sessionRepo.findAllWithMinutes();
+  async getTopPlayers(limit?: number): Promise<LeaderboardEntry[]> {
+    const sessions = await this.sessionRepo.findAllWithMinutes(limit);
 
     const grouped = (sessions || []).reduce<LeaderboardAccumulator>((acc, session) => {
       if (!acc[session.user_name]) {
