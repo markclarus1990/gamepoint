@@ -1,6 +1,6 @@
 import { ConversationRepository } from "@/lib/repositories/ConversationRepository";
 import { MessageRepository } from "@/lib/repositories/MessageRepository";
-import type { Conversation, Message } from "@/types";
+import type { Conversation, Message, DirectConversationSummary } from "@/types";
 
 export class ChatService {
   private convRepo = new ConversationRepository();
@@ -44,5 +44,48 @@ export class ChatService {
 
   async getUnreadCount(userId: string): Promise<number> {
     return this.convRepo.getUnreadCount(userId);
+  }
+
+  async getDirectConversations(
+    userId: string
+  ): Promise<DirectConversationSummary[]> {
+    return this.convRepo.findDirectConversationsForUser(userId);
+  }
+
+  async getOrCreateDirectConversation(
+    userId1: string,
+    userId2: string
+  ): Promise<string> {
+    const existing = await this.convRepo.findExistingDirectConversation(
+      userId1,
+      userId2
+    );
+    if (existing) return existing;
+    return this.convRepo.createDirectConversation(userId1, userId2);
+  }
+
+  async getDirectMessages(
+    conversationId: string,
+    userId: string
+  ): Promise<Message[]> {
+    await this.msgRepo.markDirectMessagesAsRead(conversationId, userId);
+    return this.msgRepo.findByConversationId(conversationId);
+  }
+
+  async sendDirectMessage(
+    conversationId: string,
+    senderId: string,
+    content: string
+  ): Promise<Message> {
+    return this.msgRepo.create({
+      conversation_id: conversationId,
+      sender_id: senderId,
+      sender_role: "player",
+      content,
+    });
+  }
+
+  async getDirectUnreadCount(userId: string): Promise<number> {
+    return this.convRepo.getDirectUnreadCount(userId);
   }
 }

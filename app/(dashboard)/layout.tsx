@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Menu, X, Gamepad2, MessageCircle, LayoutDashboard, LogOut } from "lucide-react";
+import { Menu, X, Gamepad2, MessageCircle, LayoutDashboard, LogOut, Mail } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -36,6 +36,7 @@ export default function DashboardLayout({
 
   const navLinks = [
     { label: "Dashboard", href: "/home", icon: LayoutDashboard },
+    { label: "Messages", href: "/messages", icon: Mail },
     { label: "Support", href: "/chat", icon: MessageCircle },
   ];
 

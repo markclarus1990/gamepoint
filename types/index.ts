@@ -76,8 +76,16 @@ export interface Conversation {
   id: string;
   user_id: string;
   status: "open" | "closed";
+  type: "support" | "direct";
   created_at: string;
   updated_at: string;
+}
+
+export interface ConversationParticipant {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  joined_at: string;
 }
 
 export interface Message {
@@ -88,4 +96,19 @@ export interface Message {
   content: string;
   created_at: string;
   read_at: string | null;
+  users?: { name: string; avatar_url: string | null };
+}
+
+export interface DirectConversationSummary {
+  id: string;
+  other_user: {
+    id: string;
+    name: string;
+    avatar_url: string | null;
+  };
+  last_message: string | null;
+  last_message_at: string | null;
+  unread_count: number;
+  created_at: string;
+  updated_at: string;
 }
