@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
 export default function Login() {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
@@ -10,13 +9,6 @@ export default function Login() {
 
   const handleLogin = async () => {
     if (!name || !pin) return alert("Enter name and PIN");
-
-    // ADMIN LOGIN
-    if (name === "admin" && pin === "madmin") {
-      localStorage.setItem("isAdmin", "true");
-      window.location.href = "/admin";
-      return;
-    }
 
     setLoading(true);
 
@@ -35,13 +27,14 @@ export default function Login() {
     if (data.error) {
       alert(data.error);
     } else {
-
-      localStorage.setItem("isAdmin", "false");
+      localStorage.setItem("isAdmin", data.is_admin ? "true" : "false");
       localStorage.setItem("user", JSON.stringify(data));
 
-      console.log("LOGIN DATA:", data);
-
-      window.location.href = "/home";
+      if (data.is_admin) {
+        window.location.href = "/admin";
+      } else {
+        window.location.href = "/home";
+      }
     }
   };
 
@@ -85,23 +78,29 @@ useEffect(() => {
 
       setLoading(true);
 
-      const { data, error } = await supabase
-        .from("users")
-        .select("*")
-        .eq("name", username)
-        .eq("pin", password)
-        .single();
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: username, pin: password }),
+      });
+
+      const data = await res.json();
 
       setLoading(false);
 
-      if (error || !data) {
+      if (data.error) {
         alert("Invalid NFC login");
         return;
       }
 
+      localStorage.setItem("isAdmin", data.is_admin ? "true" : "false");
       localStorage.setItem("user", JSON.stringify(data));
 
-      window.location.href = "/home";
+      if (data.is_admin) {
+        window.location.href = "/admin";
+      } else {
+        window.location.href = "/home";
+      }
 
     } catch (err) {
 

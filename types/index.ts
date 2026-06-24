@@ -4,6 +4,7 @@ export interface User {
   pin: string;
   points: number;
   avatar_url: string | null;
+  is_admin?: boolean;
   created_at?: string;
 }
 
@@ -55,4 +56,18 @@ export interface PublicUser {
   id: string;
   name: string;
   avatar_url: string | null;
+}
+
+export interface LoginResponse {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  is_admin: boolean;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
