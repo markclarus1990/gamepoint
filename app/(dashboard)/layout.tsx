@@ -3,11 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Menu, X, Gamepad2, MessageCircle, LayoutDashboard,
-  LogOut, Mail, Swords, Trophy, User, Settings, ChevronDown, Store,
+  LogOut, Mail, Swords, Trophy, User, Settings, ChevronDown, Store, Calculator,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import NotificationBell from "@/app/components/NotificationBell";
+import CalculatorModal from "@/app/components/CalculatorModal";
 
 export default function DashboardLayout({
   children,
@@ -15,8 +16,10 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [user, setUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null);
+  const [user, setUser] = useState<{ id: string; name: string; avatar_url?: string; points?: number } | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [userPoints, setUserPoints] = useState(0);
   const pathname = usePathname();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -47,6 +50,18 @@ export default function DashboardLayout({
     localStorage.removeItem("user");
     localStorage.removeItem("isAdmin");
     window.location.href = "/login";
+  };
+
+  const handleCalculatorOpen = () => {
+    setCalculatorOpen(true);
+    if (user?.id) {
+      fetch(`/api/user?id=${user.id}`)
+        .then((r) => r.json())
+        .then((data) => {
+          setUserPoints(data.user?.points ?? 0);
+        })
+        .catch(() => {});
+    }
   };
 
   const navLinks = [
@@ -93,6 +108,13 @@ export default function DashboardLayout({
                   </Link>
                 );
               })}
+              <button
+                onClick={handleCalculatorOpen}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              >
+                <Calculator className="w-4 h-4" />
+                Calculator
+              </button>
             </div>
 
             <div className="hidden md:flex items-center gap-1">
@@ -175,6 +197,16 @@ export default function DashboardLayout({
                   </Link>
                 );
               })}
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  handleCalculatorOpen();
+                }}
+                className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              >
+                <Calculator className="w-4 h-4" />
+                Calculator
+              </button>
               <hr className="border-zinc-800 my-2" />
               <div className="px-3 py-2 flex items-center gap-3">
                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-pink-600 to-purple-600 flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
@@ -205,6 +237,11 @@ export default function DashboardLayout({
         )}
       </nav>
       <main>{children}</main>
+      <CalculatorModal
+        open={calculatorOpen}
+        onClose={() => setCalculatorOpen(false)}
+        currentPoints={userPoints}
+      />
     </div>
   );
 }
