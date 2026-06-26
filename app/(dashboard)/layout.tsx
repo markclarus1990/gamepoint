@@ -113,7 +113,7 @@ export default function DashboardLayout({
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
               >
                 <Calculator className="w-4 h-4" />
-                Calculator
+                Points Calculator
               </button>
             </div>
 
@@ -205,7 +205,7 @@ export default function DashboardLayout({
                 className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
               >
                 <Calculator className="w-4 h-4" />
-                Calculator
+                Points Calculator
               </button>
               <hr className="border-zinc-800 my-2" />
               <div className="px-3 py-2 flex items-center gap-3">
