@@ -59,7 +59,7 @@ export class MarketplaceRepository {
   async findByUser(userId: string): Promise<MarketplacePost[]> {
     const { data } = await supabase
       .from("marketplace_posts")
-      .select("*")
+      .select("*, users(name, avatar_url)")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
     return data || [];
