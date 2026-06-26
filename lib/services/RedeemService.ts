@@ -1,3 +1,4 @@
+import { NotificationRepository } from "@/lib/repositories/NotificationRepository";
 import { RedeemRepository } from "@/lib/repositories/RedeemRepository";
 import { UserRepository } from "@/lib/repositories/UserRepository";
 import type { RedeemRequest } from "@/types";
@@ -5,6 +6,7 @@ import type { RedeemRequest } from "@/types";
 export class RedeemService {
   private redeemRepo = new RedeemRepository();
   private userRepo = new UserRepository();
+  private notifRepo = new NotificationRepository();
 
   async createRequest(
     userId: string,
@@ -65,6 +67,16 @@ export class RedeemService {
     convertPointsToMinutes(request.points_used);
 
     await this.redeemRepo.updateStatus(requestId, "approved");
+
+    try {
+      await this.notifRepo.create({
+        user_id: request.user_id,
+        type: "redeem_approved",
+        title: "Redeem request approved!",
+        body: `${request.points_used} points have been deducted.`,
+        data: { request_id: requestId, points_used: request.points_used },
+      });
+    } catch {}
 
     return { success: true };
   }

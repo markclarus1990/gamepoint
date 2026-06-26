@@ -112,3 +112,29 @@ export interface DirectConversationSummary {
   created_at: string;
   updated_at: string;
 }
+
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  data: Record<string, unknown> | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export type MarketplacePostStatus = "available" | "reserved" | "completed";
+
+export interface MarketplacePost {
+  id: string;
+  user_id: string;
+  points_amount: number;
+  asking_price: number;
+  payment_method: string;
+  description: string | null;
+  status: MarketplacePostStatus;
+  created_at: string;
+  updated_at: string;
+  users?: { name: string; avatar_url: string | null };
+}

@@ -213,6 +213,16 @@ export class ConversationRepository {
     return conv?.id ?? null;
   }
 
+  async findParticipants(
+    conversationId: string
+  ): Promise<{ user_id: string }[]> {
+    const { data } = await supabase
+      .from("conversation_participants")
+      .select("user_id")
+      .eq("conversation_id", conversationId);
+    return data || [];
+  }
+
   async createDirectConversation(
     creatorId: string,
     otherUserId: string
