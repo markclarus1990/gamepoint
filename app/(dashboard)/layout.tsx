@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Menu, X, Gamepad2, MessageCircle, LayoutDashboard,
-  LogOut, Mail, Swords, Trophy, User, Settings, ChevronDown,
+  LogOut, Mail, Swords, Trophy, User, Settings, ChevronDown, Store,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import NotificationBell from "@/app/components/NotificationBell";
 
 export default function DashboardLayout({
   children,
@@ -50,6 +51,7 @@ export default function DashboardLayout({
 
   const navLinks = [
     { label: "Dashboard", href: "/home", icon: LayoutDashboard },
+    { label: "Marketplace", href: "/marketplace", icon: Store },
     { label: "Messages", href: "/messages", icon: Mail },
     { label: "Tournaments", href: "/tekken", icon: Swords },
     { label: "Leaderboard", href: "/#top-players", icon: Trophy },
@@ -93,7 +95,8 @@ export default function DashboardLayout({
               })}
             </div>
 
-            <div className="hidden md:flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-1">
+              <NotificationBell />
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setProfileOpen(!profileOpen)}

@@ -1,10 +1,14 @@
 import { ConversationRepository } from "@/lib/repositories/ConversationRepository";
 import { MessageRepository } from "@/lib/repositories/MessageRepository";
+import { NotificationRepository } from "@/lib/repositories/NotificationRepository";
+import { UserRepository } from "@/lib/repositories/UserRepository";
 import type { Conversation, Message, DirectConversationSummary } from "@/types";
 
 export class ChatService {
   private convRepo = new ConversationRepository();
   private msgRepo = new MessageRepository();
+  private notifRepo = new NotificationRepository();
+  private userRepo = new UserRepository();
 
   async getOrCreateConversation(
     userId: string
@@ -28,8 +32,25 @@ export class ChatService {
     sender_role: "player" | "admin";
     content: string;
   }): Promise<Message> {
+    const msg = await this.msgRepo.create(data);
     await this.convRepo.updateStatus(data.conversation_id, "open");
-    return this.msgRepo.create(data);
+
+    if (data.sender_role === "admin") {
+      const conv = await this.convRepo.findById(data.conversation_id);
+      if (conv && conv.user_id !== data.sender_id) {
+        try {
+          await this.notifRepo.create({
+            user_id: conv.user_id,
+            type: "admin_reply",
+            title: "Admin replied to your support ticket",
+            body: data.content.slice(0, 200),
+            data: { conversation_id: data.conversation_id },
+          });
+        } catch {}
+      }
+    }
+
+    return msg;
   }
 
   async getConversationsForAdmin() {
@@ -77,12 +98,29 @@ export class ChatService {
     senderId: string,
     content: string
   ): Promise<Message> {
-    return this.msgRepo.create({
+    const msg = await this.msgRepo.create({
       conversation_id: conversationId,
       sender_id: senderId,
       sender_role: "player",
       content,
     });
+
+    try {
+      const participants = await this.convRepo.findParticipants(conversationId);
+      const receiver = participants.find((p) => p.user_id !== senderId);
+      if (receiver) {
+        const sender = await this.userRepo.findById(senderId);
+        await this.notifRepo.create({
+          user_id: receiver.user_id,
+          type: "direct_message",
+          title: `New message from ${sender?.name || "Unknown"}`,
+          body: content.slice(0, 200),
+          data: { conversation_id: conversationId, sender_id: senderId },
+        });
+      }
+    } catch {}
+
+    return msg;
   }
 
   async getDirectUnreadCount(userId: string): Promise<number> {
