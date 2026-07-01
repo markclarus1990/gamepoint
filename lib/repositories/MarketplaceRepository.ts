@@ -1,10 +1,11 @@
 import { supabase } from "@/lib/supabase";
-import type { MarketplacePost, MarketplacePostStatus } from "@/types";
+import type { MarketplacePost, MarketplacePostStatus, MarketplaceListingType } from "@/types";
 
 export type MarketplaceFilter = {
   status?: MarketplacePostStatus;
+  listingType?: MarketplaceListingType;
   search?: string;
-  sort?: "newest" | "highest_points" | "lowest_price";
+  sort?: "newest" | "highest_points" | "lowest_price" | "ending_soon";
 };
 
 export class MarketplaceRepository {
@@ -21,21 +22,30 @@ export class MarketplaceRepository {
       query = query.eq("status", filter.status);
     }
 
+    if (filter?.listingType) {
+      query = query.eq("listing_type", filter.listingType);
+    }
+
     if (filter?.search) {
       query = query.ilike("users.name", `%${filter.search}%`);
     }
 
-    const sortField =
-      filter?.sort === "highest_points"
-        ? "points_amount"
-        : filter?.sort === "lowest_price"
-          ? "asking_price"
-          : "created_at";
+    if (filter?.sort === "ending_soon") {
+      query = query
+        .not("end_time", "is", null)
+        .order("end_time", { ascending: true });
+    } else {
+      const sortField =
+        filter?.sort === "highest_points"
+          ? "points_amount"
+          : filter?.sort === "lowest_price"
+            ? "asking_price"
+            : "created_at";
 
-    const sortOrder =
-      filter?.sort === "lowest_price" ? true : false;
+      const sortOrder = filter?.sort === "lowest_price";
 
-    query = query.order(sortField, { ascending: sortOrder });
+      query = query.order(sortField, { ascending: sortOrder });
+    }
 
     if (page !== undefined && pageSize !== undefined) {
       const from = (page - 1) * pageSize;
@@ -65,13 +75,38 @@ export class MarketplaceRepository {
     return data || [];
   }
 
+  async findByBuyer(userId: string): Promise<MarketplacePost[]> {
+    const { data } = await supabase
+      .from("marketplace_posts")
+      .select("*, users(name, avatar_url)")
+      .eq("buyer_id", userId)
+      .order("completed_at", { ascending: false });
+    return data || [];
+  }
+
+  async findActiveAuctions(): Promise<MarketplacePost[]> {
+    const { data } = await supabase
+      .from("marketplace_posts")
+      .select("*, users(name, avatar_url)")
+      .eq("status", "active")
+      .eq("listing_type", "auction")
+      .not("end_time", "is", null)
+      .lt("end_time", new Date().toISOString());
+    return data || [];
+  }
+
   async create(data: {
     user_id: string;
     points_amount: number;
     asking_price: number;
-    payment_method: string;
+    payment_method?: string;
     description?: string;
     status: MarketplacePostStatus;
+    listing_type: MarketplaceListingType;
+    starting_bid?: number;
+    min_increment?: number;
+    end_time?: string;
+    reserve_price?: number;
   }): Promise<MarketplacePost> {
     const { data: post, error } = await supabase
       .from("marketplace_posts")
@@ -90,6 +125,8 @@ export class MarketplaceRepository {
       payment_method: string;
       description: string;
       status: MarketplacePostStatus;
+      buyer_id: string;
+      completed_at: string;
     }>
   ): Promise<MarketplacePost> {
     const { data: post, error } = await supabase

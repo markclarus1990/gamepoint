@@ -32,7 +32,7 @@ export class UserRepository {
   }
 
   async create(name: string, pin: string): Promise<void> {
-    const { error } = await supabase.from("users").insert({ name, pin, points: 0 });
+    const { error } = await supabase.from("users").insert({ name, pin, points: 0, reserved_points: 0 });
     if (error) throw error;
   }
 
@@ -78,5 +78,11 @@ export class UserRepository {
       .select("name, avatar_url")
       .in("name", names);
     return data || [];
+  }
+
+  async getAvailablePoints(userId: string): Promise<number> {
+    const user = await this.findById(userId);
+    if (!user) return 0;
+    return user.points - (user.reserved_points || 0);
   }
 }

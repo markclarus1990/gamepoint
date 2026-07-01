@@ -15,6 +15,7 @@ type User = {
   id: string;
   name: string;
   points: number;
+  reserved_points?: number;
   avatar_url?: string;
 };
  const [user, setUser] = useState<any>(null);
@@ -188,7 +189,12 @@ console.log("points:", user?.points ?? 0);
 
         {/* POINTS */}
         <div className="bg-gray-800 p-4 rounded-xl text-center text-lg">
-          Available Points: <b>{user?.points || 0}</b>
+          Available Points: <b>{(user?.points || 0) - (user?.reserved_points || 0)}</b>
+          {user?.reserved_points > 0 && (
+            <span className="text-xs text-zinc-600 ml-1">
+              (<b className="text-amber-400">{user.reserved_points}</b> reserved)
+            </span>
+          )}
         </div>
 
         {/* FILTER */}
