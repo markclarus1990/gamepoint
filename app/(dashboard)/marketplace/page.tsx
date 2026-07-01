@@ -304,12 +304,12 @@ function ListingCard({
           className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-medium hover:bg-zinc-700 hover:text-white transition-all"
         >
           <Eye className="w-3.5 h-3.5" />
-          View
+          View Details
         </Link>
         {canBuyNow && (
           <Link
             href={`/marketplace/${post.id}`}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 text-white text-xs font-medium hover:from-emerald-500 hover:to-green-500 transition-all"
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 text-white text-xs font-semibold hover:from-emerald-500 hover:to-green-500 transition-all shadow-lg shadow-emerald-600/20"
           >
             <Zap className="w-3.5 h-3.5" />
             Buy Now
@@ -318,22 +318,21 @@ function ListingCard({
         {!isOwner && currentUser && isAuction && isActive && (
           <Link
             href={`/marketplace/${post.id}`}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 text-white text-xs font-medium hover:from-amber-500 hover:to-orange-500 transition-all"
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 text-white text-xs font-semibold hover:from-amber-500 hover:to-orange-500 transition-all shadow-lg shadow-amber-600/20"
           >
             <Gavel className="w-3.5 h-3.5" />
             Bid
           </Link>
         )}
-        {!isOwner && currentUser && !canBuyNow && !(isAuction && isActive) && (
-          <button
-            onClick={() => onMessage(post.user_id)}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 text-white text-xs font-medium hover:from-pink-500 hover:to-purple-500 transition-all"
-          >
-            <MessageCircle className="w-3.5 h-3.5" />
-            Message
-          </button>
-        )}
       </div>
+      {!isOwner && currentUser && (
+        <button onClick={() => onMessage(post.user_id)}
+          className="w-full mt-2 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[11px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-all"
+        >
+          <MessageCircle className="w-3 h-3" />
+          Ask Seller
+        </button>
+      )}
     </div>
   );
 }
