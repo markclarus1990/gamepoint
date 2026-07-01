@@ -3,7 +3,7 @@ import { MarketplaceService } from "@/lib/services/MarketplaceService";
 const marketplaceService = new MarketplaceService();
 
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;

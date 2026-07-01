@@ -2,75 +2,49 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  Plus,
-  Search,
-  SlidersHorizontal,
-  Store,
-  MessageCircle,
-  Eye,
-  Loader2,
-  Clock,
-  CheckCircle2,
-  BookmarkCheck,
+  Plus, Search, SlidersHorizontal, Store, MessageCircle, Eye, Loader2,
+  Clock, CheckCircle2, BookmarkCheck, Timer, Zap, Gavel,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { MarketplacePost, MarketplacePostStatus } from "@/types";
+import type { MarketplacePost, MarketplacePostStatus, MarketplaceListingType } from "@/types";
+import MarketplaceSubNav from "@/app/components/marketplace/MarketplaceSubNav";
 
-type SortOption = "newest" | "highest_points" | "lowest_price";
+type SortOption = "newest" | "highest_points" | "lowest_price" | "ending_soon";
 
 export default function MarketplacePage() {
   const router = useRouter();
-  const [user, setUser] = useState<{
-    id: string;
-    name: string;
-    avatar_url?: string;
-  } | null>(null);
+  const [user, setUser] = useState<{ id: string; name: string; avatar_url?: string } | null>(null);
   const [listings, setListings] = useState<MarketplacePost[]>([]);
-  const [myListings, setMyListings] = useState<MarketplacePost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<
-    MarketplacePostStatus | "all"
-  >("all");
+  const [statusFilter, setStatusFilter] = useState<MarketplacePostStatus | "all">("active");
+  const [listingType, setListingType] = useState<MarketplaceListingType | "all">("all");
   const [sort, setSort] = useState<SortOption>("newest");
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem("user");
-    if (!stored) {
-      window.location.href = "/login";
-      return;
-    }
+    if (!stored) { window.location.href = "/login"; return; }
     setUser(JSON.parse(stored));
   }, []);
 
   const fetchListings = useCallback(async () => {
-    if (!user) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (listingType !== "all") params.set("listingType", listingType);
       if (sort) params.set("sort", sort);
       if (search.trim()) params.set("search", search.trim());
 
       const res = await fetch(`/api/marketplace?${params.toString()}`);
       const result = await res.json();
       setListings(result.data || result || []);
+    } finally { setLoading(false); }
+  }, [statusFilter, listingType, sort, search]);
 
-      const myRes = await fetch(
-        `/api/marketplace?userId=${user.id}`
-      );
-      const myData = await myRes.json();
-      setMyListings(Array.isArray(myData) ? myData : []);
-    } finally {
-      setLoading(false);
-    }
-  }, [user, statusFilter, sort, search]);
-
-  useEffect(() => {
-    fetchListings();
-  }, [fetchListings]);
+  useEffect(() => { fetchListings(); }, [fetchListings]);
 
   const handleMessageSeller = async (sellerId: string) => {
     if (!user) return;
@@ -82,24 +56,19 @@ export default function MarketplacePage() {
       });
       const data = await res.json();
       router.push(`/messages?conversation=${data.conversationId}`);
-    } catch {
-      router.push("/messages");
-    }
+    } catch { router.push("/messages"); }
   };
 
   const statusBadge = (status: MarketplacePostStatus) => {
     const styles: Record<string, string> = {
-      available: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-      reserved: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+      active: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
       completed: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+      cancelled: "bg-red-500/10 text-red-400 border-red-500/20",
+      expired: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
     };
     return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${styles[status]}`}
-      >
-        {status === "available" && <CheckCircle2 className="w-3 h-3" />}
-        {status === "reserved" && <BookmarkCheck className="w-3 h-3" />}
-        {status === "completed" && <Clock className="w-3 h-3" />}
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${styles[status] || styles.active}`}>
+        {status === "active" ? <Zap className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
         {status.charAt(0).toUpperCase() + status.slice(1)}
       </span>
     );
@@ -108,7 +77,6 @@ export default function MarketplacePage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Store className="w-6 h-6 text-pink-500" />
@@ -123,7 +91,8 @@ export default function MarketplacePage() {
           </Link>
         </div>
 
-        {/* Search + Filter bar */}
+        <MarketplaceSubNav />
+
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -148,20 +117,13 @@ export default function MarketplacePage() {
           </button>
         </div>
 
-        {/* Filter panel */}
         {showFilters && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
             <div>
-              <label className="text-xs text-zinc-500 font-medium mb-2 block">
-                Status
-              </label>
+              <label className="text-xs text-zinc-500 font-medium mb-2 block">Status</label>
               <div className="flex gap-2 flex-wrap">
-                {(
-                  ["all", "available", "reserved", "completed"] as const
-                ).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setStatusFilter(s)}
+                {(["all", "active", "completed", "cancelled", "expired"] as const).map((s) => (
+                  <button key={s} onClick={() => setStatusFilter(s)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       statusFilter === s
                         ? "bg-pink-500/10 text-pink-400 border border-pink-500/30"
@@ -174,18 +136,31 @@ export default function MarketplacePage() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-zinc-500 font-medium mb-2 block">
-                Sort By
-              </label>
+              <label className="text-xs text-zinc-500 font-medium mb-2 block">Type</label>
+              <div className="flex gap-2 flex-wrap">
+                {(["all", "fixed_price", "auction"] as const).map((t) => (
+                  <button key={t} onClick={() => setListingType(t)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      listingType === t
+                        ? "bg-pink-500/10 text-pink-400 border border-pink-500/30"
+                        : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-white"
+                    }`}
+                  >
+                    {t === "all" ? "All" : t === "fixed_price" ? "Fixed Price" : "Auction"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-zinc-500 font-medium mb-2 block">Sort By</label>
               <div className="flex gap-2 flex-wrap">
                 {[
                   { value: "newest", label: "Newest" },
                   { value: "highest_points", label: "Highest Points" },
                   { value: "lowest_price", label: "Lowest Price" },
+                  { value: "ending_soon", label: "Ending Soon" },
                 ].map((o) => (
-                  <button
-                    key={o.value}
-                    onClick={() => setSort(o.value as SortOption)}
+                  <button key={o.value} onClick={() => setSort(o.value as SortOption)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       sort === o.value
                         ? "bg-pink-500/10 text-pink-400 border border-pink-500/30"
@@ -200,37 +175,7 @@ export default function MarketplacePage() {
           </div>
         )}
 
-        {/* My Listings */}
-        {myListings.length > 0 && (
-          <section>
-            <h2 className="text-sm font-semibold text-zinc-400 mb-3 flex items-center gap-2">
-              <Store className="w-4 h-4" />
-              My Listings
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {myListings.map((post) => (
-                <ListingCard
-                  key={post.id}
-                  post={post}
-                  isOwner={true}
-                  currentUser={user}
-                  onMessage={handleMessageSeller}
-                  statusBadge={statusBadge}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* All Listings */}
         <section>
-          <h2 className="text-sm font-semibold text-zinc-400 mb-3 flex items-center gap-2">
-            <Store className="w-4 h-4" />
-            {statusFilter === "all"
-              ? "All Listings"
-              : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1) + " Listings"}
-          </h2>
-
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="w-6 h-6 text-pink-500 animate-spin" />
@@ -239,10 +184,7 @@ export default function MarketplacePage() {
             <div className="text-center py-20">
               <Store className="w-12 h-12 mx-auto mb-3 text-zinc-700" />
               <p className="text-zinc-500 text-sm">No listings found</p>
-              <Link
-                href="/marketplace/create"
-                className="inline-block mt-3 text-sm text-pink-400 hover:text-pink-300 transition-colors"
-              >
+              <Link href="/marketplace/create" className="inline-block mt-3 text-sm text-pink-400 hover:text-pink-300 transition-colors">
                 Create the first listing
               </Link>
             </div>
@@ -267,11 +209,7 @@ export default function MarketplacePage() {
 }
 
 function ListingCard({
-  post,
-  isOwner,
-  currentUser,
-  onMessage,
-  statusBadge,
+  post, isOwner, currentUser, onMessage, statusBadge,
 }: {
   post: MarketplacePost;
   isOwner: boolean;
@@ -279,60 +217,87 @@ function ListingCard({
   onMessage: (sellerId: string) => void;
   statusBadge: (status: MarketplacePostStatus) => React.ReactNode;
 }) {
+  const isAuction = post.listing_type === "auction";
+  const isFixed = post.listing_type === "fixed_price";
+  const isActive = post.status === "active";
+  const canBuyNow = isFixed && isActive && !isOwner && currentUser;
+
+  const timeLeft = isAuction && post.end_time
+    ? getTimeLeft(post.end_time)
+    : null;
+
   return (
     <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-all backdrop-blur-sm">
-      {/* Seller info */}
       <div className="flex items-center gap-3 mb-3">
         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden">
           {post.users?.avatar_url ? (
-            <img
-              src={post.users.avatar_url}
-              className="w-full h-full object-cover"
-            />
+            <img src={post.users.avatar_url} className="w-full h-full object-cover" />
           ) : (
             post.users?.name?.charAt(0).toUpperCase() || "?"
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-white truncate">
-            {post.users?.name || "Unknown"}
-          </div>
+          <div className="text-sm font-semibold text-white truncate">{post.users?.name || "Unknown"}</div>
           <div className="text-[10px] text-zinc-500">
-            {new Date(post.created_at).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })}
+            {new Date(post.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
           </div>
         </div>
         {statusBadge(post.status)}
       </div>
 
-      {/* Listing details */}
-      <div className="space-y-2 mb-4">
-        <div className="flex justify-between items-center">
-          <span className="text-xs text-zinc-500">Points</span>
-          <span className="text-sm font-bold text-pink-400">
-            {post.points_amount.toLocaleString()}
+      <div className="flex items-center gap-1.5 mb-2">
+        {isAuction ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <Gavel className="w-3 h-3" />
+            Auction
           </span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs text-zinc-500">Price</span>
-          <span className="text-sm font-semibold text-white">
-            ₱{post.asking_price.toLocaleString()}
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-pink-500/10 text-pink-400 border border-pink-500/20">
+            <Zap className="w-3 h-3" />
+            Fixed Price
           </span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs text-zinc-500">Payment</span>
-          <span className="text-xs text-zinc-300">{post.payment_method}</span>
-        </div>
-        {post.description && (
-          <p className="text-xs text-zinc-500 line-clamp-2 mt-1">
-            {post.description}
-          </p>
         )}
       </div>
 
-      {/* Buttons */}
+      <div className="space-y-2 mb-4">
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-zinc-500">Points</span>
+          <span className="text-sm font-bold text-pink-400">{post.points_amount.toLocaleString()}</span>
+        </div>
+        {isFixed && (
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-zinc-500">Price</span>
+            <span className="text-sm font-semibold text-white">₱{post.asking_price.toLocaleString()}</span>
+          </div>
+        )}
+        {isAuction && (
+          <>
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-zinc-500">Current Bid</span>
+              <span className="text-sm font-semibold text-amber-400">{post.asking_price.toLocaleString()}</span>
+            </div>
+            {timeLeft && (
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-zinc-500">Ends In</span>
+                <span className={`text-xs font-medium flex items-center gap-1 ${timeLeft.hours < 1 ? "text-red-400" : "text-zinc-300"}`}>
+                  <Timer className="w-3 h-3" />
+                  {timeLeft.text}
+                </span>
+              </div>
+            )}
+          </>
+        )}
+        {isFixed && post.payment_method && (
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-zinc-500">Payment</span>
+            <span className="text-xs text-zinc-300">{post.payment_method}</span>
+          </div>
+        )}
+        {post.description && (
+          <p className="text-xs text-zinc-500 line-clamp-2 mt-1">{post.description}</p>
+        )}
+      </div>
+
       <div className="flex gap-2">
         <Link
           href={`/marketplace/${post.id}`}
@@ -341,7 +306,25 @@ function ListingCard({
           <Eye className="w-3.5 h-3.5" />
           View
         </Link>
-        {!isOwner && currentUser && (
+        {canBuyNow && (
+          <Link
+            href={`/marketplace/${post.id}`}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 text-white text-xs font-medium hover:from-emerald-500 hover:to-green-500 transition-all"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Buy Now
+          </Link>
+        )}
+        {!isOwner && currentUser && isAuction && isActive && (
+          <Link
+            href={`/marketplace/${post.id}`}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 text-white text-xs font-medium hover:from-amber-500 hover:to-orange-500 transition-all"
+          >
+            <Gavel className="w-3.5 h-3.5" />
+            Bid
+          </Link>
+        )}
+        {!isOwner && currentUser && !canBuyNow && !(isAuction && isActive) && (
           <button
             onClick={() => onMessage(post.user_id)}
             className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 text-white text-xs font-medium hover:from-pink-500 hover:to-purple-500 transition-all"
@@ -353,4 +336,17 @@ function ListingCard({
       </div>
     </div>
   );
+}
+
+function getTimeLeft(endTime: string): { text: string; hours: number } | null {
+  const diff = new Date(endTime).getTime() - Date.now();
+  if (diff <= 0) return null;
+  const hours = Math.floor(diff / 3600000);
+  const minutes = Math.floor((diff % 3600000) / 60000);
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return { text: `${days}d ${hours % 24}h`, hours };
+  }
+  if (hours > 0) return { text: `${hours}h ${minutes}m`, hours };
+  return { text: `${minutes}m`, hours: 0 };
 }

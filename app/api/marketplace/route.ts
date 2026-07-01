@@ -1,4 +1,5 @@
 import { MarketplaceService } from "@/lib/services/MarketplaceService";
+import type { MarketplacePostStatus, MarketplaceListingType } from "@/types";
 
 const marketplaceService = new MarketplaceService();
 
@@ -11,23 +12,23 @@ export async function GET(req: Request) {
     return Response.json(posts);
   }
 
-  const status = searchParams.get("status") as
-    | "available"
-    | "reserved"
-    | "completed"
-    | null;
+  const buyerId = searchParams.get("buyerId");
+  if (buyerId) {
+    const posts = await marketplaceService.findByBuyer(buyerId);
+    return Response.json(posts);
+  }
+
+  const status = searchParams.get("status") as MarketplacePostStatus | null;
+  const listingType = searchParams.get("listingType") as MarketplaceListingType | null;
   const search = searchParams.get("search");
-  const sort = searchParams.get("sort") as
-    | "newest"
-    | "highest_points"
-    | "lowest_price"
-    | null;
+  const sort = searchParams.get("sort") as "newest" | "highest_points" | "lowest_price" | "ending_soon" | null;
   const page = searchParams.get("page");
   const pageSize = searchParams.get("pageSize");
 
   const result = await marketplaceService.findAll(
     {
       status: status || undefined,
+      listingType: listingType || undefined,
       search: search || undefined,
       sort: sort || undefined,
     },
@@ -40,8 +41,18 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { user_id, points_amount, asking_price, payment_method, description } =
-    body;
+  const {
+    user_id,
+    points_amount,
+    asking_price,
+    payment_method,
+    description,
+    listing_type,
+    starting_bid,
+    min_increment,
+    end_time,
+    reserve_price,
+  } = body;
 
   if (!user_id) {
     return Response.json({ error: "user_id is required" }, { status: 400 });
@@ -52,6 +63,11 @@ export async function POST(req: Request) {
     asking_price,
     payment_method,
     description,
+    listing_type,
+    starting_bid,
+    min_increment,
+    end_time,
+    reserve_price,
   });
 
   if ("error" in result) {

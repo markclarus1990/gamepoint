@@ -17,8 +17,11 @@ import { supabase } from "@/lib/supabase";
 const TYPE_ICONS: Record<string, React.ElementType> = {
   direct_message: MessageCircle,
   admin_reply: MessageCircle,
-  marketplace_reserved: Store,
-  marketplace_completed: Store,
+  marketplace_sold: Store,
+  marketplace_bought: Store,
+  marketplace_auction_won: Store,
+  marketplace_auction_ended: Store,
+  marketplace_outbid: Store,
   redeem_approved: CheckCircle,
 };
 
@@ -136,8 +139,11 @@ export default function NotificationsPage() {
       case "admin_reply":
         router.push("/chat");
         break;
-      case "marketplace_reserved":
-      case "marketplace_completed":
+      case "marketplace_sold":
+      case "marketplace_bought":
+      case "marketplace_auction_won":
+      case "marketplace_auction_ended":
+      case "marketplace_outbid":
         router.push(`/marketplace/${data?.listing_id || ""}`);
         break;
       case "redeem_approved":
