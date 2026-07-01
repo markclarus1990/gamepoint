@@ -4,11 +4,82 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, MessageCircle, Edit3, Trash2, BookmarkCheck, CheckCircle2,
-  Loader2, Zap, Gavel, Timer, Heart, Clock, User,
+  Loader2, Zap, Gavel, Timer, Heart, X, ShoppingBag,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "react-toastify";
 import type { MarketplacePost, MarketplacePostStatus, Bid } from "@/types";
+
+function PurchaseConfirmModal({
+  post, onConfirm, onClose, buying,
+}: {
+  post: MarketplacePost;
+  onConfirm: () => void;
+  onClose: () => void;
+  buying: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-md shadow-2xl shadow-black/50">
+        <button onClick={onClose} className="absolute top-4 right-4 p-1 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all">
+          <X className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-600 to-green-600 flex items-center justify-center">
+            <ShoppingBag className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">Confirm Purchase</h3>
+            <p className="text-xs text-zinc-500">Fixed price listing</p>
+          </div>
+        </div>
+
+        <div className="bg-zinc-800/50 rounded-xl p-4 space-y-3 mb-5">
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-zinc-500">Seller</span>
+            <span className="text-sm font-medium text-white">{post.users?.name || "Unknown"}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-zinc-500">Points</span>
+            <span className="text-sm font-bold text-pink-400">{post.points_amount.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-zinc-500">Price</span>
+            <span className="text-lg font-bold text-white">₱{post.asking_price.toLocaleString()}</span>
+          </div>
+          {post.payment_method && (
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-zinc-500">Payment Method</span>
+              <span className="text-sm text-zinc-300">{post.payment_method}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-zinc-800/30 rounded-xl px-4 py-3 mb-5">
+          <p className="text-[11px] text-zinc-500 leading-relaxed">
+            By confirming, you agree to purchase {post.points_amount.toLocaleString()} points for ₱{post.asking_price.toLocaleString()}.
+            The points will be transferred to your account immediately. This action cannot be undone.
+          </p>
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 px-4 py-3 rounded-xl bg-zinc-800 text-zinc-300 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-all"
+          >
+            Cancel
+          </button>
+          <button onClick={onConfirm} disabled={buying}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white text-sm font-semibold hover:from-emerald-500 hover:to-green-500 transition-all disabled:opacity-50"
+          >
+            {buying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            {buying ? "Processing..." : "Confirm Purchase"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ListingDetailPage() {
   const params = useParams();
@@ -23,6 +94,7 @@ export default function ListingDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [timeLeft, setTimeLeft] = useState<string>("");
+  const [showBuyModal, setShowBuyModal] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem("user");
@@ -81,7 +153,6 @@ export default function ListingDetailPage() {
 
   const handleBuyNow = async () => {
     if (!user || !post) return;
-    if (!confirm(`Buy ${post.points_amount.toLocaleString()} points for ₱${post.asking_price.toLocaleString()}?`)) return;
     setBuying(true);
     try {
       const res = await fetch(`/api/marketplace/${post.id}/buy`, {
@@ -90,12 +161,12 @@ export default function ListingDetailPage() {
         body: JSON.stringify({ user_id: user.id }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || "Purchase failed"); return; }
+      if (!res.ok) { toast.error(data.error || "Purchase failed"); setBuying(false); setShowBuyModal(false); return; }
       toast.success("Purchase successful!");
+      setShowBuyModal(false);
       router.refresh();
       window.location.reload();
-    } catch { toast.error("Something went wrong"); }
-    finally { setBuying(false); }
+    } catch { toast.error("Something went wrong"); setBuying(false); setShowBuyModal(false); }
   };
 
   const handlePlaceBid = async () => {
@@ -295,28 +366,36 @@ export default function ListingDetailPage() {
             )}
           </div>
 
-          {/* Action buttons */}
-          <div className="space-y-3">
+          {/* ── Primary Actions ── */}
+          <div className="space-y-2">
             {/* Fixed Price - Buy Now */}
             {isFixed && isActive && !isOwner && user && (
-              <button onClick={handleBuyNow} disabled={buying}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white text-sm font-semibold hover:from-emerald-500 hover:to-green-500 transition-all disabled:opacity-50"
+              <button onClick={() => setShowBuyModal(true)} disabled={buying}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white text-sm font-bold hover:from-emerald-500 hover:to-green-500 transition-all disabled:opacity-50 shadow-lg shadow-emerald-600/25"
               >
-                {buying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                {buying ? "Processing..." : `Buy Now — ₱${post.asking_price.toLocaleString()}`}
+                <Zap className="w-5 h-5" />
+                Buy Now — ₱{post.asking_price.toLocaleString()}
               </button>
             )}
 
             {/* Auction - Place Bid */}
             {isAuction && isActive && !isOwner && user && (
-              <div className="space-y-2">
+              <div className="bg-zinc-800/30 border border-zinc-700 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-500">Your Bid</span>
+                  {highestBid && (
+                    <span className="text-xs text-zinc-500">
+                      Current highest: <span className="text-amber-400 font-semibold">{highestBid.amount.toLocaleString()}</span>
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <input type="number" value={bidAmount} onChange={(e) => setBidAmount(e.target.value)}
-                    placeholder={highestBid ? `Min bid: ${(highestBid.amount + (post.min_increment || 1)).toLocaleString()}` : `Min bid: ${post.starting_bid?.toLocaleString()}`}
-                    className="flex-1 bg-zinc-800 text-white placeholder-zinc-600 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/50 border border-zinc-700"
+                    placeholder={highestBid ? `Min: ${(highestBid.amount + (post.min_increment || 1)).toLocaleString()}` : `Min: ${post.starting_bid?.toLocaleString()}`}
+                    className="flex-1 bg-zinc-900 text-white placeholder-zinc-600 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/50 border border-zinc-700"
                   />
                   <button onClick={handlePlaceBid} disabled={placingBid}
-                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white text-sm font-semibold hover:from-amber-500 hover:to-orange-500 transition-all disabled:opacity-50 flex items-center gap-2"
+                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white text-sm font-bold hover:from-amber-500 hover:to-orange-500 transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-amber-600/25"
                   >
                     {placingBid ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gavel className="w-4 h-4" />}
                     Bid
@@ -327,7 +406,7 @@ export default function ListingDetailPage() {
 
             {/* Owner actions */}
             {isOwner && (
-              <div className="space-y-2">
+              <div className="space-y-2 pt-2">
                 {isActive && (
                   <Link href={`/marketplace/${post.id}/edit`}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 text-white text-sm font-semibold hover:bg-zinc-700 transition-all"
@@ -353,12 +432,13 @@ export default function ListingDetailPage() {
               </div>
             )}
 
-            {!isOwner && user && isActive && (
+            {/* ── Secondary: Ask Seller ── */}
+            {!isOwner && user && (
               <button onClick={handleMessage}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 text-zinc-300 text-sm font-medium hover:bg-zinc-700 hover:text-white transition-all"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-800 text-zinc-500 text-xs font-medium hover:text-zinc-300 hover:border-zinc-700 transition-all"
               >
-                <MessageCircle className="w-4 h-4" />
-                Message Seller
+                <MessageCircle className="w-3.5 h-3.5" />
+                Ask Seller a Question
               </button>
             )}
           </div>
@@ -405,6 +485,16 @@ export default function ListingDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Purchase Confirmation Modal */}
+      {showBuyModal && post && (
+        <PurchaseConfirmModal
+          post={post}
+          buying={buying}
+          onConfirm={handleBuyNow}
+          onClose={() => { if (!buying) setShowBuyModal(false); }}
+        />
+      )}
     </div>
   );
 }
