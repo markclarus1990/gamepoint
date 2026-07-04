@@ -44,6 +44,8 @@ export class AuthService {
       name: user.name,
       avatar_url: user.avatar_url,
       is_admin: user.is_admin ?? false,
+      points: user.points,
+      reserved_points: user.reserved_points,
     };
   }
 
@@ -79,6 +81,8 @@ export class AuthService {
       name: user.name,
       avatar_url: user.avatar_url,
       is_admin: user.is_admin ?? false,
+      points: user.points,
+      reserved_points: user.reserved_points,
     };
   }
 

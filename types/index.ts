@@ -64,6 +64,8 @@ export interface LoginResponse {
   name: string;
   avatar_url: string | null;
   is_admin: boolean;
+  points: number;
+  reserved_points: number;
 }
 
 export interface PaginatedResponse<T> {
