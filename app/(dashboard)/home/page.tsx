@@ -25,6 +25,7 @@ const [history, setHistory] = useState<any[]>([]);
   const [toDate, setToDate] = useState("");
   const [redeem, setRedeem] = useState(20);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   // LOAD USER
   useEffect(() => {
@@ -92,12 +93,10 @@ const [history, setHistory] = useState<any[]>([]);
 
   // REDEEM
  const requestRedeem = async () => {
-  console.log("REDEEM START");
+  setSubmitting(true);
 
   try {
     const stored = JSON.parse(localStorage.getItem("user")!);
-
-    console.log("USER:", stored);
 
     const res = await fetch("/api/redeem", {
       method: "POST",
@@ -108,20 +107,23 @@ const [history, setHistory] = useState<any[]>([]);
       }),
     });
 
-    console.log("FETCH DONE");
-
     const data = await res.json();
 
-    console.log("REDEEM RESPONSE:", data);
+    if (!data.success) {
+      throw new Error(data.error || "Failed to send redeem request");
+    }
 
     const refresh = await fetch(`/api/user?id=${stored.id}`);
     const refreshed = await refresh.json();
 
     setUser(refreshed.user);
     setHistory(refreshed.history || []);
-      toast.success("Redeem request sent!");
+    toast.success("Redeem request sent!");
   } catch (err) {
     console.error("REDEEM ERROR:", err);
+    toast.error(err instanceof Error ? err.message : "Something went wrong");
+  } finally {
+    setSubmitting(false);
   }
 };
   // CHANGE AVATAR
@@ -301,7 +303,8 @@ console.log("points:", user?.points ?? 0);
             type="number"
             value={redeem}
             onChange={(e) => setRedeem(Number(e.target.value))}
-            className="w-full p-3 rounded bg-gray-800"
+            disabled={submitting}
+            className="w-full p-3 rounded bg-gray-800 disabled:opacity-50"
           />
 
           <div className="text-xs text-gray-400">
@@ -312,12 +315,12 @@ console.log("points:", user?.points ?? 0);
 
 <button
   onClick={() => {
-    console.log("CLICKED REDEEM");
     requestRedeem();
   }}
-  className="w-full p-3 rounded-lg bg-purple-600"
+  disabled={submitting}
+  className="w-full p-3 rounded-lg bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
 >
-  REQUEST REDEEM
+  {submitting ? "Submitting..." : "REQUEST REDEEM"}
 </button>
         </div>
 

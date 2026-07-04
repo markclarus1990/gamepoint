@@ -191,3 +191,20 @@ export interface SavedListing {
   listing_id: string;
   created_at: string;
 }
+
+export interface Product {
+  id: string;
+  name: string;
+  points_cost: number;
+  image_url: string | null;
+  created_at: string;
+}
+
+export interface ProductPurchase {
+  id: string;
+  product_id: string;
+  user_id: string;
+  points_spent: number;
+  created_at: string;
+  products?: Product;
+}

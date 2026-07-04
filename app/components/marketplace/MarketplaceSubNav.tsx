@@ -5,6 +5,7 @@ import Link from "next/link";
 
 const tabs = [
   { label: "Browse", href: "/marketplace" },
+  { label: "Shop", href: "/marketplace/shop" },
   { label: "My Listings", href: "/marketplace/my-listings" },
   { label: "Purchases", href: "/marketplace/purchases" },
   { label: "Sales", href: "/marketplace/sales" },
