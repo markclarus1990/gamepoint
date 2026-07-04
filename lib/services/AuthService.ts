@@ -11,6 +11,42 @@ function isBcryptHash(str: string): boolean {
 export class AuthService {
   private userRepo = new UserRepository();
 
+  async loginOrRegisterWithGithub(
+    githubId: string,
+    githubUsername: string,
+    avatarUrl: string | null
+  ): Promise<LoginResponse> {
+    let user = await this.userRepo.findByGithubId(githubId);
+
+    if (!user) {
+      const baseName = githubUsername;
+      let name = baseName;
+      let suffix = 1;
+      while (await this.userRepo.existsByName(name)) {
+        name = `${baseName}${suffix}`;
+        suffix++;
+      }
+
+      user = await this.userRepo.createFromGithub(
+        name,
+        githubId,
+        githubUsername,
+        avatarUrl
+      );
+    }
+
+    if (avatarUrl && user.avatar_url !== avatarUrl) {
+      await this.userRepo.updateAvatar(user.id, avatarUrl);
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      avatar_url: user.avatar_url,
+      is_admin: user.is_admin ?? false,
+    };
+  }
+
   async login(
     name: string,
     pin: string

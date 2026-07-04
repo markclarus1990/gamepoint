@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 export default function Login() {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [topPlayers, setTopPlayers] = useState<any[]>([]);
+  const [deviceCode, setDeviceCode] = useState<string | null>(null);
+  const [userCode, setUserCode] = useState<string | null>(null);
+  const [verificationUri, setVerificationUri] = useState<string | null>(null);
+  const [deviceLoading, setDeviceLoading] = useState(false);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleLogin = async () => {
     if (!name || !pin) return alert("Enter name and PIN");
@@ -38,6 +44,60 @@ export default function Login() {
     }
   };
 
+  const startDeviceLogin = async () => {
+    setDeviceLoading(true);
+    setDeviceError(null);
+    try {
+      const res = await fetch("/api/auth/github/device", { method: "POST" });
+      const data = await res.json();
+      if (data.error) {
+        setDeviceError(data.error);
+        setDeviceLoading(false);
+        return;
+      }
+      setDeviceCode(data.device_code);
+      setUserCode(data.user_code);
+      setVerificationUri(data.verification_uri);
+
+      const interval = (data.interval || 5) * 1000;
+      pollRef.current = setInterval(async () => {
+        try {
+          const pollRes = await fetch("/api/auth/github/device/poll", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ device_code: data.device_code }),
+          });
+          const pollData = await pollRes.json();
+          if (pollData.status === "authorized") {
+            if (pollRef.current) clearInterval(pollRef.current);
+            localStorage.setItem("isAdmin", pollData.user.is_admin ? "true" : "false");
+            localStorage.setItem("user", JSON.stringify(pollData.user));
+            window.location.href = pollData.user.is_admin ? "/admin" : "/home";
+          }
+        } catch {
+          // continue polling
+        }
+      }, interval);
+    } catch {
+      setDeviceError("Failed to start device login");
+    }
+    setDeviceLoading(false);
+  };
+
+  const stopDeviceLogin = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    setDeviceCode(null);
+    setUserCode(null);
+    setVerificationUri(null);
+    setDeviceError(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     loadTopPlayers();
   }, []);
@@ -66,6 +126,24 @@ const formatTime = (mins: number) => {
 useEffect(() => {
 
   const params = new URLSearchParams(window.location.search);
+
+  const githubUserParam = params.get("github_user");
+  if (githubUserParam) {
+    try {
+      const data = JSON.parse(decodeURIComponent(githubUserParam));
+      localStorage.setItem("isAdmin", data.is_admin ? "true" : "false");
+      localStorage.setItem("user", JSON.stringify(data));
+      window.location.href = data.is_admin ? "/admin" : "/home";
+      return;
+    } catch {
+      // fall through
+    }
+  }
+
+  const errorParam = params.get("error");
+  if (errorParam) {
+    alert("GitHub login failed. Please try again.");
+  }
 
   const username = params.get("u");
   const password = params.get("p");
@@ -415,6 +493,72 @@ shadow-2xl
         >
           {loading ? "Logging in..." : "Login"}
         </button>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-white/10"></div>
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-[#071225]/70 px-2 text-gray-400">or</span>
+          </div>
+        </div>
+
+        <a
+          href="/api/auth/github"
+          className="flex items-center justify-center gap-3 w-full py-3 rounded-xl font-bold text-white bg-[#24292e] hover:bg-[#1b1f23] hover:scale-[1.02] active:scale-[0.98] transition duration-200 shadow-lg"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+          </svg>
+          Sign in with GitHub
+        </a>
+
+        <button
+          onClick={startDeviceLogin}
+          disabled={deviceLoading}
+          className="flex items-center justify-center gap-3 w-full py-3 rounded-xl font-bold text-white bg-[#24292e]/70 hover:bg-[#1b1f23] hover:scale-[1.02] active:scale-[0.98] transition duration-200 shadow-lg border border-white/10"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+          </svg>
+          {deviceLoading ? "Starting..." : "Device Login"}
+        </button>
+
+        {deviceError && (
+          <p className="text-red-400 text-xs text-center mt-2">{deviceError}</p>
+        )}
+
+        {userCode && verificationUri && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="bg-[#0f1a2e] border border-white/10 rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl text-center">
+              <h2 className="text-white text-lg font-bold mb-4">GitHub Device Login</h2>
+              <p className="text-gray-400 text-sm mb-4">
+                Go to{" "}
+                <a
+                  href={verificationUri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-400 hover:underline font-semibold"
+                >
+                  {verificationUri}
+                </a>{" "}
+                and enter the code below:
+              </p>
+              <div className="bg-black/40 border border-white/10 rounded-xl py-4 px-6 mb-6">
+                <span className="text-3xl font-black tracking-[0.3em] text-white select-all">
+                  {userCode}
+                </span>
+              </div>
+              <p className="text-gray-500 text-xs mb-4">Waiting for authorization...</p>
+              <button
+                onClick={stopDeviceLogin}
+                className="text-sm text-gray-400 hover:text-white underline"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
      <div className="mt-4 space-y-3">
   <p className="text-center text-gray-400 text-sm">

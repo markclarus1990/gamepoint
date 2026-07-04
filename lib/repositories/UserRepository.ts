@@ -49,6 +49,38 @@ export class UserRepository {
     if (error) throw error;
   }
 
+  async findByGithubId(githubId: string): Promise<User | null> {
+    const { data } = await supabase
+      .from("users")
+      .select("*")
+      .eq("github_id", githubId)
+      .maybeSingle();
+    return data;
+  }
+
+  async createFromGithub(
+    name: string,
+    githubId: string,
+    githubUsername: string,
+    avatarUrl: string | null
+  ): Promise<User> {
+    const { data, error } = await supabase
+      .from("users")
+      .insert({
+        name,
+        pin: "",
+        github_id: githubId,
+        github_username: githubUsername,
+        avatar_url: avatarUrl,
+        points: 0,
+        reserved_points: 0,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
   async updateAvatar(id: string, avatarUrl: string): Promise<void> {
     const { error } = await supabase
       .from("users")
