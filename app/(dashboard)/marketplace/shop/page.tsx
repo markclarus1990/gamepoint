@@ -79,7 +79,7 @@ export default function ShopPage() {
     return order.status;
   };
 
-  const available = (user?.points || 0) - (user?.reserved_points || 0);
+  const currentPoints = user?.points || 0;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -90,7 +90,7 @@ export default function ShopPage() {
             <h1 className="text-xl font-bold">Shop</h1>
           </div>
           <div className="text-sm text-zinc-400">
-            Points: <span className="text-pink-400 font-semibold">{available}</span>
+            Points: <span className="text-pink-400 font-semibold">{currentPoints}</span>
           </div>
         </div>
 
