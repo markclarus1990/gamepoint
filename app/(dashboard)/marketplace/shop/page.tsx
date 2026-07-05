@@ -152,7 +152,7 @@ export default function ShopPage() {
                 >
                   <div className="aspect-square bg-zinc-800 flex items-center justify-center">
                     {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                      <img src={product.image_url} alt={product.name} className="w-full h-full object-contain p-2" />
                     ) : (
                       <div className="text-4xl text-zinc-700 font-bold uppercase">
                         {product.name.charAt(0)}
