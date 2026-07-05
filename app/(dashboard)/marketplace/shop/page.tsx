@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
-import { ShoppingBag, Loader2, Check, Clock } from "lucide-react";
+import { ShoppingBag, Loader2, Clock } from "lucide-react";
 import MarketplaceSubNav from "@/app/components/marketplace/MarketplaceSubNav";
 import type { Product, ProductPurchase } from "@/types";
 
@@ -74,7 +74,7 @@ export default function ShopPage() {
   };
 
   const getOrderStatus = (productId: string) => {
-    const order = orders.find((o) => o.product_id === productId);
+    const order = orders.find((o) => o.product_id === productId && o.status === "ordered");
     if (!order) return null;
     return order.status;
   };
@@ -134,21 +134,17 @@ export default function ShopPage() {
                       onClick={() => handleOrder(product.id)}
                       disabled={!!status || isOrdering}
                       className={`w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                        status === "granted"
-                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 cursor-default"
-                          : status === "ordered"
+                        status === "ordered"
                           ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-default"
                           : "bg-pink-500 text-white hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed"
                       }`}
                     >
                       {isOrdering ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : status === "granted" ? (
-                        <Check className="w-3.5 h-3.5" />
                       ) : status === "ordered" ? (
                         <Clock className="w-3.5 h-3.5" />
                       ) : null}
-                      {isOrdering ? "Ordering..." : status === "granted" ? "Granted" : status === "ordered" ? "Ordered" : "Order"}
+                      {isOrdering ? "Ordering..." : status === "ordered" ? "Ordered" : "Order"}
                     </button>
                   </div>
                 </div>

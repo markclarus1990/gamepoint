@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 
 type User = {
     id: string;
@@ -46,6 +47,8 @@ export default function Admin() {
   const [toDate, setToDate] = useState("");
   const [pending, setPending] = useState<Redeem[]>([]);
   const [shopOrders, setShopOrders] = useState<ShopOrder[]>([]);
+  const [grantingId, setGrantingId] = useState<string | null>(null);
+  const [shopGrantingId, setShopGrantingId] = useState<string | null>(null);
   const [authorized, setAuthorized] = useState(false);
   useEffect(() => {
     const isAdmin = localStorage.getItem("isAdmin");
@@ -174,16 +177,20 @@ const filteredSessions = sessions.filter((s) => {
 
     <button
       onClick={async () => {
+        if (grantingId) return;
+        setGrantingId(r.id);
         await fetch("/api/redeem/approve", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ request_id: r.id }),
         });
-
+        setGrantingId(null);
         loadPending();
       }}
-      className="bg-green-600 px-3 py-1 rounded"
+      disabled={grantingId === r.id}
+      className="bg-green-600 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-60"
     >
+      {grantingId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
       Grant
     </button>
 
@@ -213,16 +220,20 @@ const filteredSessions = sessions.filter((s) => {
 
     <button
       onClick={async () => {
+        if (shopGrantingId) return;
+        setShopGrantingId(o.id);
         await fetch("/api/products/grant", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ order_id: o.id }),
         });
-
+        setShopGrantingId(null);
         loadShopOrders();
       }}
-      className="bg-green-600 px-3 py-1 rounded"
+      disabled={shopGrantingId === o.id}
+      className="bg-green-600 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-60"
     >
+      {shopGrantingId === o.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
       Grant
     </button>
 

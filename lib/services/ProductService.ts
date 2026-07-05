@@ -23,7 +23,7 @@ export class ProductService {
     if (!product) return { error: "Product not found" };
 
     const already = await this.productRepo.findPurchase(productId, userId);
-    if (already) return { error: "Already ordered" };
+    if (already && already.status === "ordered") return { error: "Already ordered" };
 
     try {
       await this.productRepo.createPurchase({
