@@ -207,6 +207,9 @@ export interface ProductPurchase {
   product_id: string;
   user_id: string;
   points_spent: number;
+  status: "ordered" | "granted";
   created_at: string;
+  granted_at?: string;
   products?: Product;
+  users?: { name: string };
 }

@@ -24,6 +24,17 @@ type Redeem = {
     name: string;
   };
 };
+
+type ShopOrder = {
+  id: string;
+  product_id: string;
+  user_id: string;
+  points_spent: number;
+  status: string;
+  created_at: string;
+  products?: { name: string; points_cost: number };
+  users?: { name: string };
+};
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -34,6 +45,7 @@ export default function Admin() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [pending, setPending] = useState<Redeem[]>([]);
+  const [shopOrders, setShopOrders] = useState<ShopOrder[]>([]);
   const [authorized, setAuthorized] = useState(false);
   useEffect(() => {
     const isAdmin = localStorage.getItem("isAdmin");
@@ -63,8 +75,14 @@ const loadPending = async () => {
   setPending(await res.json());
 };
 
+const loadShopOrders = async () => {
+  const res = await fetch("/api/products/purchases/pending");
+  setShopOrders(await res.json());
+};
+
 useEffect(() => {
   loadPending();
+  loadShopOrders();
 }, []);
 
   useEffect(() => {
@@ -135,7 +153,7 @@ const filteredSessions = sessions.filter((s) => {
         </button>
       </div>
       <div className="flex gap-6">
-<div className="bg-gray-900 p-4 rounded-xl">
+<div className="bg-gray-900 p-4 rounded-xl min-w-[280px]">
   <h2 className="font-semibold mb-3">Redeem Requests</h2>
 
   {pending.length === 0 ? (
@@ -163,7 +181,45 @@ const filteredSessions = sessions.filter((s) => {
         });
 
         loadPending();
-        // loadData();
+      }}
+      className="bg-green-600 px-3 py-1 rounded"
+    >
+      Grant
+    </button>
+
+  </div>
+))
+  )}
+</div>
+
+<div className="bg-gray-900 p-4 rounded-xl min-w-[280px]">
+  <h2 className="font-semibold mb-3">Shop Orders</h2>
+
+  {shopOrders.length === 0 ? (
+    <div className="text-gray-400">No pending orders</div>
+  ) : (
+   shopOrders.map((o) => (
+  <div key={o.id} className="bg-gray-800 p-3 rounded-lg mb-2 flex justify-between items-center">
+    
+    <div>
+      <div className="font-semibold">
+        {o.users?.name || "Unknown"}
+      </div>
+
+      <div className="text-sm text-gray-400">
+        {o.products?.name || "Unknown item"} • {o.points_spent} pts
+      </div>
+    </div>
+
+    <button
+      onClick={async () => {
+        await fetch("/api/products/grant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: o.id }),
+        });
+
+        loadShopOrders();
       }}
       className="bg-green-600 px-3 py-1 rounded"
     >

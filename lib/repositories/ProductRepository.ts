@@ -45,10 +45,27 @@ export class ProductRepository {
   }): Promise<ProductPurchase> {
     const { data: purchase, error } = await supabase
       .from("product_purchases")
-      .insert(data)
+      .insert({ ...data, status: "ordered" })
       .select("*, products(*)")
       .single();
     if (error) throw error;
     return purchase;
+  }
+
+  async findPendingOrders(): Promise<ProductPurchase[]> {
+    const { data } = await supabase
+      .from("product_purchases")
+      .select("*, products(*), users(name)")
+      .eq("status", "ordered")
+      .order("created_at", { ascending: false });
+    return data || [];
+  }
+
+  async grantOrder(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("product_purchases")
+      .update({ status: "granted", granted_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
   }
 }

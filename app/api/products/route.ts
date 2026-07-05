@@ -20,5 +20,5 @@ export async function POST(req: Request) {
     return Response.json({ error: result.error }, { status: 400 });
   }
 
-  return Response.json({ success: true });
+  return Response.json({ success: true, message: "Order placed! Wait for admin to grant it." });
 }

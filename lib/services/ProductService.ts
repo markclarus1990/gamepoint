@@ -22,22 +22,8 @@ export class ProductService {
     const product = await this.productRepo.findById(productId);
     if (!product) return { error: "Product not found" };
 
-    const available = user.points - (user.reserved_points || 0);
-    if (available < product.points_cost) {
-      return { error: "Not enough points" };
-    }
-
     const already = await this.productRepo.findPurchase(productId, userId);
-    if (already) return { error: "Already purchased" };
-
-    const newPoints = user.points - product.points_cost;
-
-    const { error: updateError } = await supabase
-      .from("users")
-      .update({ points: newPoints })
-      .eq("id", userId);
-
-    if (updateError) return { error: "Failed to deduct points" };
+    if (already) return { error: "Already ordered" };
 
     try {
       await this.productRepo.createPurchase({
@@ -46,9 +32,7 @@ export class ProductService {
         points_spent: product.points_cost,
       });
     } catch {
-      // Rollback points if purchase log fails
-      await supabase.from("users").update({ points: user.points }).eq("id", userId);
-      return { error: "Failed to record purchase" };
+      return { error: "Failed to create order" };
     }
 
     return { success: true };
@@ -57,5 +41,47 @@ export class ProductService {
   async getPurchases(userId: string): Promise<{ data: ProductPurchase[] }> {
     const data = await this.productRepo.findPurchasesByUser(userId);
     return { data };
+  }
+
+  async getPendingOrders(): Promise<{ data: ProductPurchase[] }> {
+    const data = await this.productRepo.findPendingOrders();
+    return { data };
+  }
+
+  async grantOrder(orderId: string): Promise<{ success: true } | { error: string }> {
+    const { data: order } = await supabase
+      .from("product_purchases")
+      .select("*, products(*)")
+      .eq("id", orderId)
+      .single();
+
+    if (!order) return { error: "Order not found" };
+    if (order.status !== "ordered") return { error: "Order already granted" };
+
+    const user = await this.userRepo.findById(order.user_id);
+    if (!user) return { error: "User not found" };
+
+    const available = user.points - (user.reserved_points || 0);
+    if (available < order.points_spent) {
+      return { error: "User does not have enough points" };
+    }
+
+    const newPoints = user.points - order.points_spent;
+
+    const { error: updateError } = await supabase
+      .from("users")
+      .update({ points: newPoints })
+      .eq("id", order.user_id);
+
+    if (updateError) return { error: "Failed to deduct points" };
+
+    try {
+      await this.productRepo.grantOrder(orderId);
+    } catch {
+      await supabase.from("users").update({ points: user.points }).eq("id", order.user_id);
+      return { error: "Failed to grant order" };
+    }
+
+    return { success: true };
   }
 }

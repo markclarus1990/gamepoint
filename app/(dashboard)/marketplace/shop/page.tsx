@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
-import { ShoppingBag, Loader2, Check } from "lucide-react";
+import { ShoppingBag, Loader2, Check, Clock } from "lucide-react";
 import MarketplaceSubNav from "@/app/components/marketplace/MarketplaceSubNav";
-import type { Product } from "@/types";
+import type { Product, ProductPurchase } from "@/types";
 
 export default function ShopPage() {
   const [user, setUser] = useState<{ id: string; name: string; points: number; reserved_points?: number } | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [purchased, setPurchased] = useState<Set<string>>(new Set());
+  const [orders, setOrders] = useState<ProductPurchase[]>([]);
   const [loading, setLoading] = useState(true);
-  const [buying, setBuying] = useState<string | null>(null);
+  const [ordering, setOrdering] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem("user");
@@ -31,11 +31,11 @@ export default function ShopPage() {
     }
   };
 
-  const fetchPurchases = async (userId: string) => {
+  const fetchOrders = async (userId: string) => {
     try {
       const res = await fetch(`/api/products/purchases?userId=${userId}`);
       const data = await res.json();
-      setPurchased(new Set((data.data || []).map((p: { product_id: string }) => p.product_id)));
+      setOrders(data.data || []);
     } catch {}
   };
 
@@ -44,12 +44,12 @@ export default function ShopPage() {
   }, []);
 
   useEffect(() => {
-    if (user) fetchPurchases(user.id);
+    if (user) fetchOrders(user.id);
   }, [user]);
 
-  const handleBuy = async (productId: string) => {
-    if (!user || buying) return;
-    setBuying(productId);
+  const handleOrder = async (productId: string) => {
+    if (!user || ordering) return;
+    setOrdering(productId);
 
     try {
       const res = await fetch("/api/products", {
@@ -60,22 +60,23 @@ export default function ShopPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        toast.error(data.error || "Purchase failed");
+        toast.error(data.error || "Order failed");
         return;
       }
 
-      setPurchased((prev) => new Set(prev).add(productId));
-
-      const refresh = await fetch(`/api/user?id=${user.id}`);
-      const refreshed = await refresh.json();
-      setUser(refreshed.user);
-
-      toast.success("Purchase successful!");
+      await fetchOrders(user.id);
+      toast.success("Order placed! Wait for admin to grant it.");
     } catch {
       toast.error("Something went wrong");
     } finally {
-      setBuying(null);
+      setOrdering(null);
     }
+  };
+
+  const getOrderStatus = (productId: string) => {
+    const order = orders.find((o) => o.product_id === productId);
+    if (!order) return null;
+    return order.status;
   };
 
   const available = (user?.points || 0) - (user?.reserved_points || 0);
@@ -104,9 +105,8 @@ export default function ShopPage() {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {products.map((product) => {
-              const alreadyOwned = purchased.has(product.id);
-              const canAfford = available >= product.points_cost && !alreadyOwned;
-              const isBuying = buying === product.id;
+              const status = getOrderStatus(product.id);
+              const isOrdering = ordering === product.id;
 
               return (
                 <div
@@ -131,20 +131,24 @@ export default function ShopPage() {
                     </div>
 
                     <button
-                      onClick={() => handleBuy(product.id)}
-                      disabled={!canAfford || isBuying}
+                      onClick={() => handleOrder(product.id)}
+                      disabled={!!status || isOrdering}
                       className={`w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                        alreadyOwned
+                        status === "granted"
                           ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 cursor-default"
+                          : status === "ordered"
+                          ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-default"
                           : "bg-pink-500 text-white hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed"
                       }`}
                     >
-                      {isBuying ? (
+                      {isOrdering ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : alreadyOwned ? (
+                      ) : status === "granted" ? (
                         <Check className="w-3.5 h-3.5" />
+                      ) : status === "ordered" ? (
+                        <Clock className="w-3.5 h-3.5" />
                       ) : null}
-                      {isBuying ? "Buying..." : alreadyOwned ? "Owned" : "Buy"}
+                      {isOrdering ? "Ordering..." : status === "granted" ? "Granted" : status === "ordered" ? "Ordered" : "Order"}
                     </button>
                   </div>
                 </div>
