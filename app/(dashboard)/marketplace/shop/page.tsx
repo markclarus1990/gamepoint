@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { ShoppingBag, Loader2, Clock } from "lucide-react";
 import MarketplaceSubNav from "@/app/components/marketplace/MarketplaceSubNav";
@@ -12,11 +12,27 @@ export default function ShopPage() {
   const [orders, setOrders] = useState<ProductPurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [ordering, setOrdering] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem("user");
     if (!stored) { window.location.href = "/login"; return; }
-    setUser(JSON.parse(stored));
+    const parsed = JSON.parse(stored);
+    setUser(parsed);
+
+    fetch(`/api/user?id=${parsed.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user) {
+          setUser(data.user);
+          localStorage.setItem("user", JSON.stringify(data.user));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, []);
 
   const fetchProducts = async () => {
@@ -39,12 +55,33 @@ export default function ShopPage() {
     } catch {}
   };
 
+  const refreshUser = async (userId: string) => {
+    try {
+      const res = await fetch(`/api/user?id=${userId}`);
+      const data = await res.json();
+      if (data.user) {
+        setUser(data.user);
+        localStorage.setItem("user", JSON.stringify(data.user));
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     fetchProducts();
   }, []);
 
   useEffect(() => {
-    if (user) fetchOrders(user.id);
+    if (!user) return;
+    fetchOrders(user.id);
+
+    pollRef.current = setInterval(() => {
+      refreshUser(user.id);
+      fetchOrders(user.id);
+    }, 5000);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, [user]);
 
   const handleOrder = async (productId: string) => {

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 
 type User = {
@@ -50,6 +50,7 @@ export default function Admin() {
   const [grantingId, setGrantingId] = useState<string | null>(null);
   const [shopGrantingId, setShopGrantingId] = useState<string | null>(null);
   const [authorized, setAuthorized] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     const isAdmin = localStorage.getItem("isAdmin");
 
@@ -86,6 +87,15 @@ const loadShopOrders = async () => {
 useEffect(() => {
   loadPending();
   loadShopOrders();
+
+  pollRef.current = setInterval(() => {
+    loadPending();
+    loadShopOrders();
+  }, 5000);
+
+  return () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+  };
 }, []);
 
   useEffect(() => {
