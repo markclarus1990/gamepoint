@@ -104,7 +104,11 @@ export class AuthService {
       await this.userRepo.create(name, hashedPin);
       return { success: true };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Registration failed";
+      const message =
+        err instanceof Error ? err.message
+        : typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message: string }).message)
+          : JSON.stringify(err);
       return { error: message, status: 500 };
     }
   }
