@@ -18,4 +18,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS github_username TEXT;
 
 -- RLS (permissive — access control in service layer)
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "Service-layer access control" ON users FOR ALL USING (true) WITH CHECK (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'users' AND policyname = 'Service-layer access control'
+  ) THEN
+    CREATE POLICY "Service-layer access control" ON users FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
