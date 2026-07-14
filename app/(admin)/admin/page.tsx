@@ -42,7 +42,9 @@ export default function Admin() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [showDeductModal, setShowDeductModal] = useState(false);
   const [amount, setAmount] = useState(0);
+  const [deductAmount, setDeductAmount] = useState(0);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [pending, setPending] = useState<Redeem[]>([]);
@@ -106,6 +108,26 @@ const openHistory = (user: User) => {
   setSelectedUser(user);
   loadSessions(user.id);
 };
+
+  const deductPoints = async () => {
+    if (!selectedUser || deductAmount <= 0) return;
+
+    await fetch("/api/deduct-points", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: selectedUser.name,
+        points: deductAmount,
+      }),
+    });
+
+    setShowDeductModal(false);
+    setDeductAmount(0);
+    loadUsers();
+    loadSessions(selectedUser.id);
+  };
 
   const addSession = async () => {
     if (!selectedUser || amount <= 0) return;
@@ -286,6 +308,16 @@ const filteredSessions = sessions.filter((s) => {
                 </button>
 
                 <button
+                  onClick={() => {
+                    setSelectedUser(u);
+                    setShowDeductModal(true);
+                  }}
+                  className="bg-red-600 px-2 py-1 rounded text-sm"
+                >
+                  Deduct
+                </button>
+
+                <button
                   onClick={() => openHistory(u)}
                   className="bg-blue-600 px-2 py-1 rounded text-sm"
                 >
@@ -404,6 +436,46 @@ const filteredSessions = sessions.filter((s) => {
   )}
 
 </div>
+
+      {/* DEDUCT MODAL */}
+      {showDeductModal && selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center">
+          <div className="bg-gray-900 p-6 rounded-xl space-y-4 w-80">
+            <h2 className="font-semibold">
+              Deduct Points - {selectedUser.name}
+            </h2>
+
+            <div className="text-sm text-gray-400">
+              Current points: {selectedUser.points || 0}
+            </div>
+
+            <input
+              type="number"
+              placeholder="Enter points to deduct"
+              value={deductAmount}
+              onChange={(e) => setDeductAmount(Number(e.target.value))}
+              className="w-full p-2 bg-gray-800 rounded"
+            />
+
+            <button
+              onClick={deductPoints}
+              className="w-full bg-red-600 p-2 rounded"
+            >
+              Confirm Deduct
+            </button>
+
+            <button
+              onClick={() => {
+                setShowDeductModal(false);
+                setDeductAmount(0);
+              }}
+              className="w-full text-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL */}
       {showModal && selectedUser && (
