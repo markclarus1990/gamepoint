@@ -1,43 +1,223 @@
-export const dynamic = "force-dynamic";
+"use client";
 
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { Swords, Trophy, Users, Target } from "lucide-react";
+import { Swords, Users, Target, X, LogIn } from "lucide-react";
 import Footer from "@/app/components/Footer";
+import { useRouter } from "next/navigation";
 
-export default async function TekkenPage() {
-  const { data: registrations } = await supabase
-    .from("tournament_registrations")
-    .select("user_id, created_at")
-    .order("created_at", { ascending: true });
+interface PlayerInfo {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  points: number;
+}
 
-  const userIds = registrations?.map((r) => r.user_id) || [];
+interface Registration {
+  user_id: string;
+  created_at: string;
+}
 
-  const { data: players } = await supabase
-    .from("users")
-    .select("id, name, avatar_url, points")
-    .in("id", userIds);
+const MAX_PLAYERS = 8;
 
-  const playerMap = new Map(
-    (players || []).map((player) => [player.id, player])
+export default function TekkenPage() {
+  const router = useRouter();
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [players, setPlayers] = useState<PlayerInfo[]>([]);
+  const [currentUser, setCurrentUser] = useState<{
+    id: string;
+    name: string;
+  } | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("user");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          return { id: parsed.id, name: parsed.name };
+        }
+      } catch {}
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalAction, setModalAction] = useState<"register" | "unregister">("register");
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [isFull, setIsFull] = useState(false);
+
+  const showToast = useCallback((message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    const { data: regs } = await supabase
+      .from("tournament_registrations")
+      .select("user_id, created_at")
+      .order("created_at", { ascending: true });
+
+    const regArray = regs || [];
+    setRegistrations(regArray);
+    setIsFull(regArray.length >= MAX_PLAYERS);
+
+    const userIds = regArray.map((r) => r.user_id);
+    if (userIds.length > 0) {
+      const { data: playerData } = await supabase
+        .from("users")
+        .select("id, name, avatar_url, points")
+        .in("id", userIds);
+      setPlayers(playerData || []);
+    } else {
+      setPlayers([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData().finally(() => setLoading(false));
+  }, [fetchData]);
+
+  const playerMap = new Map(players.map((p) => [p.id, p]));
+  const orderedPlayers: (PlayerInfo | null)[] = Array.from(
+    { length: MAX_PLAYERS },
+    (_, i) => {
+      const reg = registrations[i];
+      return reg ? playerMap.get(reg.user_id) || null : null;
+    }
   );
 
-  const orderedPlayers =
-    registrations
-      ?.map((registration) => playerMap.get(registration.user_id))
-      .filter(Boolean) || [];
+  const registeredCount = registrations.length;
+  const progress = (registeredCount / MAX_PLAYERS) * 100;
 
-  const maxPlayers = 8;
-  const registeredCount = orderedPlayers.length;
-  const progress = (registeredCount / maxPlayers) * 100;
-
-  const playerSlots = Array.from(
-    { length: maxPlayers },
-    (_, index) => orderedPlayers[index] || null
+  const currentUserRegistered = registrations.some(
+    (r) => r.user_id === currentUser?.id
   );
+
+  function handleSlotClick(player: PlayerInfo | null, index: number) {
+    if (submitting) return;
+
+    if (!currentUser) {
+      router.push("/login");
+      return;
+    }
+
+    if (player) {
+      if (player.id === currentUser.id) {
+        setModalAction("unregister");
+        setModalOpen(true);
+      }
+      return;
+    }
+
+    setModalAction("register");
+    setModalOpen(true);
+  }
+
+  async function confirmAction() {
+    if (!currentUser) return;
+    setSubmitting(true);
+    setModalOpen(false);
+
+    try {
+      if (modalAction === "register") {
+        const res = await fetch("/api/tournament/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: currentUser.id }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showToast(data.error || "Registration failed", "error");
+        } else {
+          showToast("Successfully registered!", "success");
+          await fetchData();
+        }
+      } else {
+        const res = await fetch("/api/tournament/register", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: currentUser.id }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showToast(data.error || "Failed to unregister", "error");
+        } else {
+          showToast("Successfully unregistered", "success");
+          await fetchData();
+        }
+      }
+    } catch {
+      showToast("Something went wrong", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-12 space-y-8">
+
+        {/* TOAST */}
+        {toast && (
+          <div
+            className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-2xl text-white font-semibold text-sm transition-all ${
+              toast.type === "success"
+                ? "bg-green-600 border border-green-400"
+                : "bg-red-600 border border-red-400"
+            }`}
+          >
+            {toast.message}
+          </div>
+        )}
+
+        {/* CONFIRMATION MODAL */}
+        {modalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-white">
+                  {modalAction === "register"
+                    ? "Register for Tournament?"
+                    : "Unregister from Tournament?"}
+                </h3>
+                <button
+                  onClick={() => setModalOpen(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-300 text-sm mb-6">
+                {modalAction === "register"
+                  ? "You are about to join Tekken 7 Season 1. Are you sure?"
+                  : "You are about to leave the tournament. Your slot will open up for others."}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setModalOpen(false)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-zinc-700 text-gray-300 font-medium hover:bg-zinc-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmAction}
+                  disabled={submitting}
+                  className={`flex-1 px-4 py-2.5 rounded-xl font-bold text-white transition-all ${
+                    modalAction === "register"
+                      ? "bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400"
+                      : "bg-zinc-700 hover:bg-zinc-600"
+                  } disabled:opacity-50`}
+                >
+                  {submitting
+                    ? "Processing..."
+                    : modalAction === "register"
+                      ? "Confirm"
+                      : "Unregister"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* HERO */}
         <div className="relative overflow-hidden rounded-3xl border border-red-500/20 shadow-2xl shadow-red-500/5">
@@ -74,8 +254,12 @@ export default async function TekkenPage() {
               <span className="rounded-full border border-zinc-700 bg-zinc-900/80 backdrop-blur-sm px-4 py-2 text-sm text-gray-200">
                 8 Players
               </span>
-              <span className="rounded-full border border-green-500/30 bg-green-500/10 backdrop-blur-sm px-4 py-2 text-sm text-green-400">
-                Registration Open
+              <span className={`rounded-full border backdrop-blur-sm px-4 py-2 text-sm ${
+                isFull
+                  ? "border-red-500/30 bg-red-500/10 text-red-400"
+                  : "border-green-500/30 bg-green-500/10 text-green-400"
+              }`}>
+                {isFull ? "Full" : "Registration Open"}
               </span>
             </div>
 
@@ -115,7 +299,7 @@ export default async function TekkenPage() {
           <div className="flex justify-between text-sm text-gray-400 mb-3">
             <span>Players Registered</span>
             <span className="text-white font-semibold">
-              {registeredCount} / {maxPlayers}
+              {registeredCount} / {MAX_PLAYERS}
             </span>
           </div>
           <div className="h-3 bg-zinc-800 rounded-full overflow-hidden">
@@ -168,54 +352,101 @@ export default async function TekkenPage() {
           </h2>
 
           <div className="grid sm:grid-cols-2 gap-4">
-            {playerSlots.map((player, index) => (
-              <div
-                key={index}
-                className="rounded-xl border border-zinc-800 bg-zinc-950/80 backdrop-blur-sm p-4 flex items-center justify-between hover:border-pink-500/20 hover:bg-zinc-950 transition-all group"
-              >
-                <div className="flex items-center gap-4">
-                  {player?.avatar_url ? (
-                    <img
-                      src={player.avatar_url}
-                      alt={player.name}
-                      className="w-12 h-12 rounded-full object-cover border-2 border-zinc-700 group-hover:border-pink-500/40 transition-colors"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-zinc-800 border-2 border-zinc-700 flex items-center justify-center text-lg font-bold text-gray-400 group-hover:border-pink-500/40 transition-colors">
-                      {player ? player.name.charAt(0).toUpperCase() : "?"}
-                    </div>
-                  )}
-                  <div>
-                    <div className="text-xs text-gray-500 font-medium tracking-wider">
-                      SLOT #{index + 1}
-                    </div>
-                    <div
-                      className={`font-bold text-base ${
+            {orderedPlayers.map((player, index) => {
+              const isOwnSlot = player?.id === currentUser?.id;
+              const isEmpty = !player;
+
+              return (
+                <div
+                  key={index}
+                  onClick={() => handleSlotClick(player, index)}
+                  className={`rounded-xl border bg-zinc-950/80 backdrop-blur-sm p-4 flex items-center justify-between transition-all ${
+                    isEmpty && !isFull
+                      ? "border-dashed border-green-500/40 cursor-pointer hover:border-green-500 hover:bg-zinc-900/80"
+                      : isOwnSlot
+                        ? "border-red-500/40 cursor-pointer hover:border-red-500 hover:bg-zinc-900/80"
+                        : "border-zinc-800"
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    {player?.avatar_url ? (
+                      <img
+                        src={player.avatar_url}
+                        alt={player.name}
+                        className={`w-12 h-12 rounded-full object-cover border-2 transition-colors ${
+                          isOwnSlot
+                            ? "border-red-500/60"
+                            : "border-zinc-700"
+                        }`}
+                      />
+                    ) : (
+                      <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center text-lg font-bold transition-colors ${
+                        isEmpty
+                          ? "bg-zinc-800/50 border-dashed border-zinc-600 text-gray-500"
+                          : "bg-zinc-800 border-zinc-700 text-gray-400"
+                      }`}>
+                        {player ? player.name.charAt(0).toUpperCase() : "?"}
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-xs text-gray-500 font-medium tracking-wider">
+                        SLOT #{index + 1}
+                      </div>
+                      <div className={`font-bold text-base ${
                         player ? "text-white" : "text-gray-500"
-                      }`}
-                    >
-                      {player?.name || "TBD"}
+                      }`}>
+                        {player?.name || (isEmpty && !isFull ? "Available Slot" : isFull ? "Full" : "TBD")}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {player
+                          ? `${player.points} Points`
+                          : isEmpty && isFull
+                            ? "Slot unavailable"
+                            : "Click to register"}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-400">
-                      {player
-                        ? `${player.points} Points`
-                        : "Available Slot"}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isEmpty && !currentUser && (
+                      <LogIn className="w-4 h-4 text-gray-500" />
+                    )}
+                    <div className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                      isOwnSlot
+                        ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                        : player
+                          ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                          : isEmpty && isFull
+                            ? "bg-zinc-800/50 text-gray-600 border border-zinc-700"
+                            : "bg-green-500/5 text-green-500/60 border border-green-500/20"
+                    }`}>
+                      {isOwnSlot
+                        ? "You"
+                        : player
+                          ? "Registered"
+                          : isEmpty && isFull
+                            ? "Full"
+                            : "Open"}
                     </div>
                   </div>
                 </div>
-
-                <div
-                  className={`text-xs font-semibold px-3 py-1 rounded-full ${
-                    player
-                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                      : "bg-zinc-800/50 text-gray-500 border border-zinc-700"
-                  }`}
-                >
-                  {player ? "Registered" : "Open"}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          {!currentUser && !isFull && (
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/80 p-4 text-center">
+              <p className="text-sm text-gray-400">
+                <button
+                  onClick={() => router.push("/login")}
+                  className="text-red-400 hover:text-red-300 underline font-medium"
+                >
+                  Log in
+                </button>{" "}
+                to register for this tournament.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* MATCH SCHEDULE PREVIEW */}
