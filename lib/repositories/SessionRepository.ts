@@ -77,19 +77,21 @@ export class SessionRepository {
   }
 
   async expireOverdue(): Promise<void> {
-    await supabase
+    const { error } = await supabase
       .from("sessions")
       .update({ status: "expired" })
       .eq("status", "active")
       .lte("ends_at", new Date().toISOString());
+    if (error) throw error;
   }
 
   async endActiveByStation(stationName: string): Promise<void> {
-    await supabase
+    const { error } = await supabase
       .from("sessions")
       .update({ status: "completed", ends_at: new Date().toISOString() })
       .eq("station_name", stationName)
       .eq("status", "active");
+    if (error) throw error;
   }
 
   async findPausedForUser(userId: string): Promise<Session | null> {
@@ -106,19 +108,21 @@ export class SessionRepository {
   }
 
   async pauseActiveByStation(stationName: string, resumeSeconds: number): Promise<void> {
-    await supabase
+    const { error } = await supabase
       .from("sessions")
       .update({ status: "paused", resume_seconds: resumeSeconds })
       .eq("station_name", stationName)
       .eq("status", "active");
+    if (error) throw error;
   }
 
   async discardPausedForUser(userId: string): Promise<void> {
-    await supabase
+    const { error } = await supabase
       .from("sessions")
       .update({ status: "completed", resume_seconds: 0 })
       .eq("user_id", userId)
       .eq("status", "paused");
+    if (error) throw error;
   }
 
   async resumeSession(id: string, stationName: string, seconds: number): Promise<void> {

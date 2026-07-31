@@ -62,6 +62,7 @@ export default function Home() {
 
   const [active, setActive] = useState<ActiveSession | null>(null);
   const [remaining, setRemaining] = useState(0);
+  const [resumeSeconds, setResumeSeconds] = useState(0);
 
   const [payment, setPayment] = useState<"points" | "gfunds">("points");
   const [amountInput, setAmountInput] = useState("");
@@ -86,6 +87,7 @@ export default function Home() {
       const data = await res.json();
       setActive(data.session || null);
       setRemaining(data.remaining_seconds || 0);
+      setResumeSeconds(data.resume_seconds || 0);
     } catch {
       // ignore poll errors
     }
@@ -271,6 +273,19 @@ export default function Home() {
               <div className="text-right text-xs text-green-200">
                 <div>ends {new Date(active.ends_at).toLocaleTimeString()}</div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* SAVED TIME */}
+        {!active && resumeSeconds > 0 && (
+          <div className="bg-blue-900/40 border border-blue-600 p-4 rounded-xl">
+            <div className="text-xs text-blue-300">Saved time from last session</div>
+            <div className="text-3xl font-black text-blue-400 tabular-nums">
+              {formatClock(resumeSeconds)} remaining
+            </div>
+            <div className="text-[10px] text-blue-200 mt-1">
+              Log in at any PC to resume
             </div>
           </div>
         )}

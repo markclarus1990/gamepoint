@@ -45,6 +45,7 @@ next-env.d.ts
 /agent/**/obj/
 /agent/dist/
 /agent/**/publish/
+/agent/**/publish-new/
 
 # dev logs
 dev-server.log

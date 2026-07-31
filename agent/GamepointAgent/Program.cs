@@ -26,6 +26,14 @@ internal static class Program
         public string StationName { get; set; } = "";
         [JsonPropertyName("user_name")]
         public string UserName { get; set; } = "";
+        [JsonPropertyName("user_id")]
+        public string? UserId { get; set; }
+        [JsonPropertyName("user_points")]
+        public int? UserPoints { get; set; }
+        [JsonPropertyName("user_gfunds")]
+        public int? UserGfunds { get; set; }
+        [JsonPropertyName("user_avatar")]
+        public string? UserAvatar { get; set; }
     }
 
     private sealed class LoginUser
@@ -36,6 +44,8 @@ internal static class Program
         [JsonPropertyName("reserved_points")]
         public int ReservedPoints { get; set; }
         public int Gfunds { get; set; }
+        [JsonPropertyName("avatar_url")]
+        public string? AvatarUrl { get; set; }
     }
 
     private sealed class StartResponse
@@ -53,6 +63,142 @@ internal static class Program
     private const string COLOR_ACCENT = "#9333ea";
     private const string COLOR_GREEN = "#16a34a";
     private const string COLOR_ERROR = "#f87171";
+    private const string COLOR_PINK = "#ec4899";
+
+    private static Image? LoadBg()
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "bg.png");
+            return File.Exists(path) ? Image.FromFile(path) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Region? RoundedRegion(Control c, int radius)
+    {
+        if (radius <= 0) return null;
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var d = radius * 2;
+        var r = new Rectangle(0, 0, c.Width, c.Height);
+        path.AddArc(r.Left, r.Top, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return new Region(path);
+    }
+
+    private static void MakeGradientButton(Button b)
+    {
+        b.FlatStyle = FlatStyle.Flat;
+        b.FlatAppearance.BorderSize = 0;
+        b.ForeColor = Color.White;
+        RoundButton(b, 12);
+        b.Paint += (_, e) =>
+        {
+            using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                b.ClientRectangle,
+                Color.FromArgb(236, 72, 153),
+                Color.FromArgb(147, 51, 234),
+                System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
+            e.Graphics.FillRectangle(brush, b.ClientRectangle);
+            if (b.Enabled)
+            {
+                TextRenderer.DrawText(e.Graphics, b.Text, b.Font, b.ClientRectangle, Color.White,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+        };
+        b.Invalidate();
+    }
+
+    private static void RoundButton(Button b, int radius)
+    {
+        void Apply()
+        {
+            if (b.Width <= 0 || b.Height <= 0) return;
+            b.Region = RoundedRegion(b, Math.Max(4, Math.Min(radius, b.Height / 2)));
+        }
+        b.Resize += (_, _) => Apply();
+        Apply();
+    }
+
+    private static Panel ModernInput(bool password, out TextBox box, int width = 340)
+    {
+        var panel = new Panel
+        {
+            BackColor = C(COLOR_INPUT),
+            Size = new Size(width, 46)
+        };
+        panel.Region = RoundedRegion(panel, 12);
+        var tb = new TextBox
+        {
+            BorderStyle = BorderStyle.None,
+            BackColor = C(COLOR_INPUT),
+            ForeColor = Color.White,
+            Font = F(12),
+            PasswordChar = password ? '•' : '\0',
+            Location = new Point(14, 13),
+            Size = new Size(width - 28, 20)
+        };
+        tb.GotFocus += (_, _) =>
+        {
+            panel.BackColor = C("#334155");
+            tb.BackColor = C("#334155");
+        };
+        tb.LostFocus += (_, _) =>
+        {
+            panel.BackColor = C(COLOR_INPUT);
+            tb.BackColor = C(COLOR_INPUT);
+        };
+        panel.Controls.Add(tb);
+        box = tb;
+        return panel;
+    }
+
+    private static void PaintDarkOverlay(Control c, PaintEventArgs e, int alpha = 150)
+    {
+        using var brush = new SolidBrush(Color.FromArgb(alpha, 0, 0, 0));
+        e.Graphics.FillRectangle(brush, c.ClientRectangle);
+    }
+
+    private static async Task LoadAvatarAsync(HttpClient http, PictureBox box, string? url)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                box.Visible = false;
+                return;
+            }
+            var fullUrl = url.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? url
+                : (http.BaseAddress?.ToString().TrimEnd('/') ?? "") + url;
+            using var resp = await http.GetAsync(fullUrl);
+            if (!resp.IsSuccessStatusCode)
+            {
+                box.Visible = false;
+                return;
+            }
+            await using var stream = await resp.Content.ReadAsStreamAsync();
+            using var img = Image.FromStream(stream);
+            var size = box.Width;
+            box.Image = new Bitmap(img, new Size(size, size));
+            box.SizeMode = PictureBoxSizeMode.StretchImage;
+            if (box.Width > 0 && box.Height > 0)
+            {
+                box.Region = RoundedRegion(box, box.Width / 2);
+            }
+            box.Visible = true;
+        }
+        catch
+        {
+            box.Visible = false;
+        }
+    }
 
     [STAThread]
     private static void Main()
@@ -99,8 +245,31 @@ internal static class Program
 
     private static Color C(string hex) => ColorTranslator.FromHtml(hex);
 
+    private static void Dbg(string msg)
+    {
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(AppContext.BaseDirectory, "agent-debug.log"),
+                $"[{DateTime.Now:HH:mm:ss.fff}] {msg}{Environment.NewLine}");
+        }
+        catch
+        {
+        }
+    }
+
+    private static string PanelState(Control c) =>
+        $"{(c.IsHandleCreated ? "h" : "n")}v={(c.Visible ? "1" : "0")}";
+
     private static Font F(float size, FontStyle style = FontStyle.Regular)
         => new("Segoe UI", size, style);
+
+    private static string FmtMinutes(int totalMinutes)
+    {
+        var h = totalMinutes / 60;
+        var m = totalMinutes % 60;
+        return h > 0 ? $"{h} hr {m} min" : $"{m} min";
+    }
 
     private static Button DarkButton(string text, string bg)
     {
@@ -118,7 +287,7 @@ internal static class Program
 
     private static Button QuickButton(string text)
     {
-        return new Button
+        var btn = new Button
         {
             Text = text,
             FlatStyle = FlatStyle.Flat,
@@ -128,6 +297,8 @@ internal static class Program
             Height = 34,
             FlatAppearance = { BorderSize = 1, BorderColor = C("#334155") }
         };
+        RoundButton(btn, 17);
+        return btn;
     }
 
     private static Label DarkLabel(string text, float size, Color color, bool bold = false)
@@ -142,19 +313,6 @@ internal static class Program
         };
     }
 
-    private static TextBox DarkTextBox(bool password = false)
-    {
-        return new TextBox
-        {
-            BackColor = C(COLOR_INPUT),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle,
-            Font = F(12),
-            Height = 36,
-            PasswordChar = password ? '•' : '\0'
-        };
-    }
-
     private sealed class ControllerForm : Form
     {
         private readonly Config _cfg;
@@ -165,9 +323,11 @@ internal static class Program
         private LockForm? _lockForm;
         private CountdownForm? _countdownForm;
         private Status? _current;
+        private DateTime _lockHeldUntil = DateTime.MinValue;
 
         public HttpClient Http => _http;
         public string StationName => _cfg.StationName;
+        public LoginUser? CurrentPlayer { get; set; }
 
         public ControllerForm(Config cfg)
         {
@@ -232,45 +392,94 @@ internal static class Program
 
         public void UnlockSession(int remainingSeconds, string userName)
         {
-            _current = new Status
+            _lockHeldUntil = DateTime.MinValue;
+            Dbg($"UnlockSession remaining={remainingSeconds} user={userName}");
+            ApplyStatus(new Status
             {
                 Locked = false,
                 RemainingSeconds = remainingSeconds,
                 StationName = _cfg.StationName,
                 UserName = userName
-            };
-            ApplyStatus(_current);
+            });
         }
 
         public void LockNow()
         {
-            _current = new Status
+            _lockHeldUntil = DateTime.Now.AddSeconds(Math.Max(_cfg.PollSeconds * 2, 20) + 5);
+            Dbg("LockNow called");
+            ApplyStatus(new Status
             {
                 Locked = true,
                 RemainingSeconds = 0,
                 StationName = _cfg.StationName,
                 UserName = ""
-            };
-            ApplyStatus(_current);
+            });
         }
 
-        public async Task<bool> LogoutAsync()
+        public async Task<(bool ok, int remainingSeconds)> LogoutAsync()
         {
             try
             {
                 using var resp = await _http.PostAsJsonAsync("api/sessions/logout", new { station_name = _cfg.StationName });
-                return resp.IsSuccessStatusCode;
+                if (!resp.IsSuccessStatusCode) return (false, 0);
+                var data = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                var remaining = data.TryGetProperty("remaining_seconds", out var rs) ? rs.GetInt32() : 0;
+                return (true, remaining);
             }
             catch
             {
-                return false;
+                return (false, 0);
             }
+        }
+
+        public async Task ShowPlayerStatusAsync(int remainingSeconds)
+        {
+            if (CurrentPlayer is null || _lockForm is null || _lockForm.IsDisposed) return;
+
+            var player = CurrentPlayer;
+            var points = player.Points - player.ReservedPoints;
+            var gfunds = player.Gfunds;
+
+            try
+            {
+                using var resp = await _http.GetAsync($"api/user?id={Uri.EscapeDataString(player.Id)}");
+                if (resp.IsSuccessStatusCode)
+                {
+                    var data = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                    if (data.TryGetProperty("user", out var u))
+                    {
+                        if (u.TryGetProperty("points", out var p))
+                        {
+                            var reserved = u.TryGetProperty("reserved_points", out var rp) ? rp.GetInt32() : 0;
+                            points = p.GetInt32() - reserved;
+                        }
+                        if (u.TryGetProperty("gfunds", out var g))
+                        {
+                            gfunds = g.GetInt32();
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // keep the values from login
+            }
+
+            var mins = Math.Max(1, (int)Math.Ceiling(remainingSeconds / 60.0));
+            _lockForm.ShowPlayerStatus($"{player.Name} — {FmtMinutes(mins)} left • ₱{gfunds} gfunds • {points} pts");
         }
 
         private void ApplyStatus(Status st)
         {
+            if (!st.Locked && DateTime.Now < _lockHeldUntil)
+            {
+                return;
+            }
+
             var wasLocked = _current?.Locked ?? true;
             _current = st;
+            var lf = _lockForm;
+            Dbg($"ApplyStatus locked={st.Locked} wasLocked={wasLocked} lockForm={((lf is null ? "null" : PanelState(lf)))} countdown={( _countdownForm is null ? "null" : PanelState(_countdownForm))} loginPanel={(lf is null ? "n/a" : PanelState(lf.LoginPanel))} paymentPanel={(lf is null ? "n/a" : PanelState(lf.PaymentPanel))} loginCount={(lf is null ? -1 : lf.LoginPanel.Controls.Count)} payCount={(lf is null ? -1 : lf.PaymentPanel.Controls.Count)}");
 
             if (st.Locked)
             {
@@ -288,6 +497,7 @@ internal static class Program
                     _lockForm.Show(this);
                     _lockForm.ForceTop();
                 }
+                _countdownForm?.SetBalances();
                 _countdownForm?.Hide();
                 _keepOnTopTimer.Start();
             }
@@ -310,9 +520,12 @@ internal static class Program
                     _countdownForm.Show();
                     _countdownForm.SetTime(st.RemainingSeconds);
                     _countdownForm.SetLabel(st.StationName, st.UserName);
+                    _countdownForm.SetBalances(st.UserPoints, st.UserGfunds);
+                    _countdownForm.SetAvatar(st.UserAvatar);
                 }
                 else
                 {
+                    _countdownForm?.SetBalances();
                     _countdownForm?.Hide();
                 }
             }
@@ -383,11 +596,18 @@ internal static class Program
         private readonly Panel _card;
         private readonly Panel _loginPanel;
         private readonly Panel _paymentPanel;
+
+        public Panel LoginPanel => _loginPanel;
+        public Panel PaymentPanel => _paymentPanel;
         private readonly TextBox _txtName;
         private readonly TextBox _txtPin;
         private readonly Label _lblError;
+        private readonly Label _lblStatus;
         private readonly Label _lblUser;
+        private readonly PictureBox _avatar;
         private readonly Label _lblBalances;
+        private readonly Label _lblResume;
+        private readonly Button _btnResume;
         private readonly Button _btnPoints;
         private readonly Button _btnGfunds;
         private readonly FlowLayoutPanel _amountPanel;
@@ -398,6 +618,7 @@ internal static class Program
         private LoginUser? _user;
         private string _payment = "points";
         private int _selectedAmount;
+        private int _resumeSeconds;
 
         public bool AllowClose { get; set; }
 
@@ -410,29 +631,41 @@ internal static class Program
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             BackColor = C(COLOR_BG);
+            var bg = LoadBg();
+            if (bg is not null)
+            {
+                BackgroundImage = bg;
+                BackgroundImageLayout = ImageLayout.Stretch;
+            }
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
-            var title = DarkLabel("GAMEPOINT", 40, C(COLOR_ACCENT), true);
-            var stationLine = DarkLabel($"{controller.StationName} — PC LOCKED", 14, Color.FromArgb(200, 200, 210));
-            var hint = DarkLabel("Log in to start your session, or ask the cashier to open time", 10, Color.FromArgb(130, 130, 145));
+            var titleGame = DarkLabel("GAME", 40, Color.White, true);
+            var titlePoint = DarkLabel("POINT", 40, C(COLOR_PINK), true);
+            var stationLine = DarkLabel($"{controller.StationName} — PC LOCKED", 14, C(COLOR_PINK), true);
+            var hint = DarkLabel("Log in to start your session, or ask the cashier to open time", 10, Color.FromArgb(170, 170, 185));
 
             _card = new Panel
             {
                 BackColor = C(COLOR_CARD),
-                Size = new Size(380, 560),
+                Size = new Size(380, 600),
                 Anchor = AnchorStyles.None
             };
+            _card.Region = RoundedRegion(_card, 16);
 
             // ---- LOGIN PANEL ----
-            _loginPanel = new Panel { BackColor = C(COLOR_CARD), Size = new Size(340, 520) };
-            _txtName = DarkTextBox();
-            _txtPin = DarkTextBox(true);
+            _loginPanel = new Panel { BackColor = C(COLOR_CARD), Size = new Size(340, 560) };
+            var inputName = ModernInput(false, out _txtName);
+            var inputPin = ModernInput(true, out _txtPin);
             var lblName = DarkLabel("Player Name", 10, Color.FromArgb(160, 160, 175));
             var lblPin = DarkLabel("PIN", 10, Color.FromArgb(160, 160, 175));
             var btnLogin = DarkButton("Login", COLOR_ACCENT);
+            MakeGradientButton(btnLogin);
             _lblError = DarkLabel("", 10, C(COLOR_ERROR));
             _lblError.MaximumSize = new Size(320, 60);
             var btnAdminNote = DarkLabel("No account? Ask the cashier to create one", 9, Color.FromArgb(110, 110, 125));
+            _lblStatus = DarkLabel("", 13, Color.White, true);
+            _lblStatus.MaximumSize = new Size(320, 90);
+            _lblStatus.Visible = false;
 
             btnLogin.Click += async (_, _) => await DoLoginAsync();
 
@@ -441,28 +674,45 @@ internal static class Program
 
             var loginY = 8;
             lblName.Location = new Point(0, loginY);
-            _txtName.Location = new Point(0, loginY + 20);
-            _txtName.Size = new Size(340, 36);
-            loginY += 66;
-            lblPin.Location = new Point(0, loginY);
-            _txtPin.Location = new Point(0, loginY + 20);
-            _txtPin.Size = new Size(340, 36);
-            loginY += 66;
-            btnLogin.Location = new Point(0, loginY);
-            btnLogin.Size = new Size(340, 42);
+            loginY += 18;
+            inputName.Location = new Point(0, loginY);
             loginY += 56;
+            lblPin.Location = new Point(0, loginY);
+            loginY += 18;
+            inputPin.Location = new Point(0, loginY);
+            loginY += 56;
+            btnLogin.Location = new Point(0, loginY);
+            btnLogin.Size = new Size(340, 46);
+            loginY += 62;
             _lblError.Location = new Point(0, loginY);
-            btnAdminNote.Location = new Point(0, 470);
+            loginY += 52;
+            _lblStatus.Location = new Point(0, loginY);
+            btnAdminNote.Location = new Point(0, 510);
 
-            _loginPanel.Controls.AddRange(new Control[] { lblName, _txtName, lblPin, _txtPin, btnLogin, _lblError, btnAdminNote });
+            _loginPanel.Controls.AddRange(new Control[] { lblName, inputName, lblPin, inputPin, btnLogin, _lblError, _lblStatus, btnAdminNote });
 
             // ---- PAYMENT PANEL ----
-            _paymentPanel = new Panel { BackColor = C(COLOR_CARD), Size = new Size(340, 520) };
+            _paymentPanel = new Panel { BackColor = C(COLOR_CARD), Size = new Size(340, 560) };
             _lblUser = DarkLabel("", 13, Color.White, true);
+            _avatar = new PictureBox
+            {
+                Size = new Size(44, 44),
+                SizeMode = PictureBoxSizeMode.StretchImage,
+                BackColor = Color.Transparent,
+                Visible = false
+            };
             _lblBalances = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
+            _lblResume = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
+            _lblResume.Visible = false;
+            _btnResume = DarkButton("Resume Session", COLOR_GREEN);
+            MakeGradientButton(_btnResume);
+            _btnResume.Visible = false;
+            _btnResume.Click += async (_, _) => await DoResumeAsync();
             var lblPayWith = DarkLabel("Pay with:", 10, Color.FromArgb(160, 160, 175));
             _btnPoints = DarkButton("Gamepoints", COLOR_ACCENT);
             _btnGfunds = DarkButton("Gfunds", COLOR_INPUT);
+            RoundButton(_btnPoints, 10);
+            RoundButton(_btnGfunds, 10);
             _btnPoints.Click += (_, _) => SetPayment("points");
             _btnGfunds.Click += (_, _) => SetPayment("gfunds");
             var lblAmount = DarkLabel("Amount:", 10, Color.FromArgb(160, 160, 175));
@@ -475,17 +725,25 @@ internal static class Program
             };
             _lblTime = DarkLabel("", 12, C(COLOR_GREEN), true);
             _btnStart = DarkButton("Start Session", COLOR_GREEN);
+            MakeGradientButton(_btnStart);
             _btnStart.Click += async (_, _) => await DoStartAsync();
             _lblStartError = DarkLabel("", 10, C(COLOR_ERROR));
             _lblStartError.MaximumSize = new Size(320, 60);
             var btnLogout = DarkButton("Back", "#334155");
+            RoundButton(btnLogout, 10);
             btnLogout.Click += (_, _) => ShowLogin();
 
             var payY = 8;
-            _lblUser.Location = new Point(0, payY);
-            payY += 28;
+            _avatar.Location = new Point(0, payY);
+            _lblUser.Location = new Point(56, payY + 13);
+            payY += 56;
             _lblBalances.Location = new Point(0, payY);
-            payY += 30;
+            payY += 28;
+            _lblResume.Location = new Point(0, payY);
+            payY += 22;
+            _btnResume.Location = new Point(0, payY);
+            _btnResume.Size = new Size(340, 40);
+            payY += 54;
             lblPayWith.Location = new Point(0, payY);
             payY += 22;
             _btnPoints.Location = new Point(0, payY);
@@ -503,12 +761,12 @@ internal static class Program
             _btnStart.Size = new Size(340, 42);
             payY += 56;
             _lblStartError.Location = new Point(0, payY);
-            btnLogout.Location = new Point(0, 470);
+            btnLogout.Location = new Point(0, 510);
             btnLogout.Size = new Size(340, 36);
 
-            _paymentPanel.Controls.AddRange(new Control[] { _lblUser, _lblBalances, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, btnLogout });
+            _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, btnLogout });
 
-            Controls.AddRange(new Control[] { title, stationLine, hint, _card });
+            Controls.AddRange(new Control[] { titleGame, titlePoint, stationLine, hint, _card });
             _card.Controls.Add(_loginPanel);
             _card.Controls.Add(_paymentPanel);
 
@@ -516,14 +774,18 @@ internal static class Program
             _paymentPanel.Location = new Point(20, 20);
             _paymentPanel.Visible = false;
 
-            Resize += (_, _) => CenterCard(title, stationLine, hint);
+            Resize += (_, _) => CenterCard(titleGame, titlePoint, stationLine, hint);
+            Dbg($"LockForm ctor done login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} card={PanelState(_card)}");
         }
 
-        private void CenterCard(Control title, Control stationLine, Control hint)
+        private void CenterCard(Control titleGame, Control titlePoint, Control stationLine, Control hint)
         {
             var cx = Width / 2;
-            title.Location = new Point(cx - title.Width / 2, Math.Max(20, Height / 2 - 320));
-            stationLine.Location = new Point(cx - stationLine.Width / 2, title.Bottom + 10);
+            var titleWidth = titleGame.Width + 4 + titlePoint.Width;
+            var titleY = Math.Max(20, Height / 2 - 320);
+            titleGame.Location = new Point(cx - titleWidth / 2, titleY);
+            titlePoint.Location = new Point(titleGame.Right + 4, titleY);
+            stationLine.Location = new Point(cx - stationLine.Width / 2, titleGame.Bottom + 10);
             hint.Location = new Point(cx - hint.Width / 2, stationLine.Bottom + 8);
             _card.Location = new Point(cx - _card.Width / 2, hint.Bottom + 20);
         }
@@ -531,10 +793,11 @@ internal static class Program
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            var title = Controls[0];
-            var stationLine = Controls[1];
-            var hint = Controls[2];
-            CenterCard(title, stationLine, hint);
+            var titleGame = Controls[0];
+            var titlePoint = Controls[1];
+            var stationLine = Controls[2];
+            var hint = Controls[3];
+            CenterCard(titleGame, titlePoint, stationLine, hint);
             Activate();
             ForceTop();
         }
@@ -556,8 +819,16 @@ internal static class Program
         {
             _loginPanel.Visible = true;
             _paymentPanel.Visible = false;
+            _loginPanel.BringToFront();
+            foreach (Control c in _loginPanel.Controls)
+            {
+                c.Visible = true;
+            }
+            _lblStatus.Visible = false;
             _lblError.Text = "";
+            _lblStartError.Text = "";
             _txtName.Focus();
+            Dbg($"ShowLogin login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} cardVisible={_card.Visible} cardLoc={_card.Location} formVisible={Visible}");
         }
 
         public void ResetForNewLock()
@@ -565,8 +836,24 @@ internal static class Program
             _user = null;
             _payment = "points";
             _selectedAmount = 0;
+            _resumeSeconds = 0;
+            _lblResume.Visible = false;
+            _btnResume.Visible = false;
             _lblStartError.Text = "";
+            _lblStatus.Text = "";
+            _lblStatus.Visible = false;
+            _avatar.Visible = false;
             ShowLogin();
+            Dbg($"ResetForNewLock done login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)}");
+        }
+
+        public void ShowPlayerStatus(string text)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            _lblStatus.Text = text;
+            _lblStatus.Visible = true;
+            _lblStatus.BringToFront();
+            _lblStartError.Text = "";
         }
 
         private void SetError(string msg)
@@ -595,8 +882,8 @@ internal static class Program
                     if (sender is not Button b || b.Tag is not int amount) return;
                     _selectedAmount = amount;
                     _lblTime.Text = payment == "points"
-                        ? $"{amount / 20.0 * 8} mins"
-                        : $"{amount * 4} mins";
+                        ? FmtMinutes((int)(amount / 20.0 * 8))
+                        : FmtMinutes(amount * 4);
                     _lblStartError.Text = "";
                 };
                 _amountPanel.Controls.Add(btn);
@@ -630,51 +917,25 @@ internal static class Program
                     _lblError.Text = "Invalid server response";
                     return;
                 }
+                _controller.CurrentPlayer = _user;
+                _lblStatus.Visible = false;
                 _lblUser.Text = $"Player: {_user.Name}";
                 _lblBalances.Text = $"Gfunds ₱{_user.Gfunds}  •  Gamepoints {_user.Points - _user.ReservedPoints}";
+                _ = LoadAvatarAsync(_controller.Http, _avatar, _user.AvatarUrl);
 
-                _lblError.Text = "Checking saved time...";
-                var resumeSeconds = 0;
+                _resumeSeconds = 0;
                 try
                 {
                     using var resumeResp = await _controller.Http.GetAsync($"api/sessions/resume?user_id={Uri.EscapeDataString(_user.Id)}");
                     var resumeJson = await resumeResp.Content.ReadFromJsonAsync<JsonElement>();
                     if (resumeJson.TryGetProperty("resume_seconds", out var rs))
                     {
-                        resumeSeconds = rs.GetInt32();
+                        _resumeSeconds = rs.GetInt32();
                     }
                 }
                 catch
                 {
-                    // fall through to the payment panel
-                }
-
-                if (resumeSeconds > 0)
-                {
-                    _lblError.Text = "Resuming session...";
-                    try
-                    {
-                        using var resumeResp = await _controller.Http.PostAsJsonAsync("api/sessions/resume", new { user_id = _user.Id, station_name = _controller.StationName });
-                        var resumeData = await resumeResp.Content.ReadFromJsonAsync<JsonElement>();
-                        if (resumeData.TryGetProperty("error", out var resumeErr))
-                        {
-                            _lblError.Text = resumeErr.GetString() ?? "Resume failed";
-                            ShowPayment();
-                            return;
-                        }
-                        var remaining = resumeData.TryGetProperty("remaining_seconds", out var rs2) ? rs2.GetInt32() : resumeSeconds;
-                        _loginPanel.Visible = false;
-                        _paymentPanel.Visible = false;
-                        _controller.UnlockSession(remaining, _user.Name);
-                        Activate();
-                        return;
-                    }
-                    catch
-                    {
-                        _lblError.Text = "Cannot reach the server";
-                        ShowPayment();
-                        return;
-                    }
+                    // no saved time — fall through to the payment panel
                 }
 
                 ShowPayment();
@@ -687,10 +948,66 @@ internal static class Program
 
         private void ShowPayment()
         {
+            if (_resumeSeconds > 0)
+            {
+                var mins = (int)Math.Ceiling(_resumeSeconds / 60.0);
+                _lblResume.Text = $"Saved time: {FmtMinutes(mins)} left from your last session";
+                _lblResume.Visible = true;
+                _btnResume.Text = $"Resume Session — {FmtMinutes(mins)}";
+                _btnResume.Visible = true;
+            }
+            else
+            {
+                _lblResume.Visible = false;
+                _btnResume.Visible = false;
+            }
+
             SetPayment("points");
             _loginPanel.Visible = false;
             _paymentPanel.Visible = true;
+            _paymentPanel.BringToFront();
+            foreach (Control c in _paymentPanel.Controls)
+            {
+                c.Visible = true;
+            }
+            _lblResume.Visible = _resumeSeconds > 0;
+            _btnResume.Visible = _resumeSeconds > 0;
             Activate();
+            Dbg($"ShowPayment login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} user={( _user is null ? "null" : _user.Name )}");
+        }
+
+        private async Task DoResumeAsync()
+        {
+            if (_user is null || _resumeSeconds <= 0)
+            {
+                return;
+            }
+
+            _btnResume.Enabled = false;
+            _lblStartError.Text = "Resuming...";
+            try
+            {
+                using var resp = await _controller.Http.PostAsJsonAsync("api/sessions/resume", new { user_id = _user.Id, station_name = _controller.StationName });
+                var data = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                if (data.TryGetProperty("error", out var err))
+                {
+                    _lblStartError.Text = err.GetString() ?? "Resume failed";
+                    return;
+                }
+                var remaining = data.TryGetProperty("remaining_seconds", out var rs) ? rs.GetInt32() : _resumeSeconds;
+                _loginPanel.Visible = false;
+                _paymentPanel.Visible = false;
+                _controller.UnlockSession(remaining, _user.Name);
+                Activate();
+            }
+            catch
+            {
+                _lblStartError.Text = "Cannot reach the server";
+            }
+            finally
+            {
+                _btnResume.Enabled = true;
+            }
         }
 
         private async Task DoStartAsync()
@@ -699,6 +1016,20 @@ internal static class Program
             {
                 _lblStartError.Text = "Choose an amount first";
                 return;
+            }
+
+            if (_resumeSeconds > 0)
+            {
+                var mins = (int)Math.Ceiling(_resumeSeconds / 60.0);
+                var confirm = MessageBox.Show(
+                    $"Starting a new session discards your saved {FmtMinutes(mins)}. Continue?",
+                    "Start Session",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (confirm != DialogResult.Yes)
+                {
+                    return;
+                }
             }
 
             _btnStart.Enabled = false;
@@ -721,6 +1052,7 @@ internal static class Program
                 }
 
                 _controller.UnlockSession(data?.RemainingSeconds ?? 0, _user.Name);
+                _lblStartError.Text = "";
             }
             catch
             {
@@ -734,7 +1066,7 @@ internal static class Program
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            // painted by child controls
+            PaintDarkOverlay(this, e, 150);
         }
     }
 
@@ -743,7 +1075,13 @@ internal static class Program
         private readonly ControllerForm _controller;
         private readonly Label _label;
         private readonly Label _station;
+        private readonly Label _balances;
+        private readonly PictureBox _avatar;
         private readonly Button _btnLogout;
+        private readonly Button _btnMin;
+        private bool _minimized;
+        private bool _dragging;
+        private Point _dragOffset;
 
         public CountdownForm(ControllerForm controller)
         {
@@ -752,17 +1090,30 @@ internal static class Program
             TopMost = true;
             ShowInTaskbar = false;
             BackColor = C("#14161f");
+            var bg = LoadBg();
+            if (bg is not null)
+            {
+                BackgroundImage = bg;
+                BackgroundImageLayout = ImageLayout.Stretch;
+            }
             StartPosition = FormStartPosition.Manual;
-            Size = new Size(260, 116);
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
             _station = new Label
             {
                 AutoSize = true,
-                ForeColor = Color.FromArgb(140, 140, 155),
+                ForeColor = Color.FromArgb(200, 200, 215),
                 BackColor = Color.Transparent,
-                Font = F(9),
-                Location = new Point(12, 6)
+                Font = F(9, FontStyle.Bold),
+                Location = new Point(36, 6)
+            };
+            _avatar = new PictureBox
+            {
+                Size = new Size(18, 18),
+                SizeMode = PictureBoxSizeMode.StretchImage,
+                BackColor = Color.Transparent,
+                Visible = false,
+                Location = new Point(12, 4)
             };
             _label = new Label
             {
@@ -772,6 +1123,14 @@ internal static class Program
                 Font = F(18, FontStyle.Bold),
                 Location = new Point(12, 24)
             };
+            _balances = new Label
+            {
+                AutoSize = true,
+                ForeColor = C(COLOR_PINK),
+                BackColor = Color.Transparent,
+                Font = F(9, FontStyle.Bold),
+                Location = new Point(12, 52)
+            };
             _btnLogout = new Button
             {
                 Text = "Logout",
@@ -780,17 +1139,104 @@ internal static class Program
                 ForeColor = Color.White,
                 Font = F(9, FontStyle.Bold),
                 Height = 30,
-                Location = new Point(12, 76),
+                Location = new Point(12, 78),
                 Size = new Size(236, 30),
                 FlatAppearance = { BorderSize = 0 }
             };
             _btnLogout.Click += async (_, _) => await LogoutAsync();
+            _btnMin = new Button
+            {
+                Text = "–",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = C("#1e293b"),
+                ForeColor = Color.White,
+                Font = F(10, FontStyle.Bold),
+                Location = new Point(232, 6),
+                Size = new Size(22, 20),
+                FlatAppearance = { BorderSize = 0 }
+            };
+            _btnMin.Click += (_, _) => SetMinimized(true);
+
+            MouseDown += OnDragStart;
+            MouseMove += OnDragMove;
+            MouseUp += (_, _) => EndDrag();
+            _station.MouseDown += OnDragStart;
+            _label.MouseDown += OnDragStart;
+            _balances.MouseDown += OnDragStart;
+            _avatar.MouseDown += OnDragStart;
+
             Controls.Add(_station);
+            Controls.Add(_avatar);
             Controls.Add(_label);
+            Controls.Add(_balances);
             Controls.Add(_btnLogout);
+            Controls.Add(_btnMin);
 
             var screen = Screen.PrimaryScreen?.WorkingArea ?? Screen.GetBounds(Point.Empty);
-            Location = new Point(screen.Right - Width - 16, screen.Bottom - Height - 16);
+            Location = new Point(screen.Right - 276, screen.Bottom - 154);
+            ApplyLayout();
+        }
+
+        private void OnDragStart(object? sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            if (_minimized)
+            {
+                SetMinimized(false);
+                return;
+            }
+            _dragging = true;
+            _dragOffset = new Point(Cursor.Position.X - Location.X, Cursor.Position.Y - Location.Y);
+            Capture = true;
+        }
+
+        private void OnDragMove(object? sender, MouseEventArgs e)
+        {
+            if (!_dragging) return;
+            var screen = Screen.PrimaryScreen?.WorkingArea ?? Screen.GetBounds(Point.Empty);
+            var x = Math.Clamp(Cursor.Position.X - _dragOffset.X, screen.Left, screen.Right - Width);
+            var y = Math.Clamp(Cursor.Position.Y - _dragOffset.Y, screen.Top, screen.Bottom - Height);
+            Location = new Point(x, y);
+        }
+
+        private void EndDrag()
+        {
+            _dragging = false;
+            Capture = false;
+        }
+
+        private void SetMinimized(bool minimized)
+        {
+            _minimized = minimized;
+            ApplyLayout();
+        }
+
+        private void ApplyLayout()
+        {
+            if (_minimized)
+            {
+                Size = new Size(120, 30);
+                Region = RoundedRegion(this, 8);
+                _station.Visible = false;
+                _balances.Visible = false;
+                _btnLogout.Visible = false;
+                _btnMin.Visible = false;
+                _label.Font = F(12, FontStyle.Bold);
+                _label.Location = new Point(8, 5);
+                _label.Cursor = Cursors.Hand;
+            }
+            else
+            {
+                Size = new Size(260, 138);
+                Region = RoundedRegion(this, 16);
+                _station.Visible = true;
+                _btnLogout.Visible = true;
+                _btnMin.Visible = true;
+                _label.Font = F(18, FontStyle.Bold);
+                _label.Location = new Point(12, 24);
+                _label.Cursor = Cursors.Default;
+                BringToFront();
+            }
         }
 
         private async Task LogoutAsync()
@@ -805,9 +1251,11 @@ internal static class Program
             _btnLogout.Enabled = false;
             try
             {
-                if (await _controller.LogoutAsync())
+                var (ok, remaining) = await _controller.LogoutAsync();
+                if (ok)
                 {
                     _controller.LockNow();
+                    await _controller.ShowPlayerStatusAsync(remaining);
                 }
                 else
                 {
@@ -833,8 +1281,33 @@ internal static class Program
         {
             var h = totalSeconds / 3600;
             var m = (totalSeconds % 3600) / 60;
-            var s = totalSeconds % 60;
-            _label.Text = h > 0 ? $"{h}:{m:D2}:{s:D2}" : $"{m:D2}:{s:D2}";
+            _label.Text = h > 0 ? $"{h} hr {m} min" : $"{m} min";
+        }
+
+        public void SetBalances(int? gfunds, int? points)
+        {
+            if (gfunds is null || points is null)
+            {
+                _balances.Visible = false;
+                return;
+            }
+            _balances.Text = $"₱{gfunds} gfunds • {points} pts";
+            _balances.Visible = true;
+        }
+
+        public void SetBalances()
+        {
+            _balances.Visible = false;
+        }
+
+        public void SetAvatar(string? avatarUrl)
+        {
+            _ = LoadAvatarAsync(_controller.Http, _avatar, avatarUrl);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            PaintDarkOverlay(this, e, 165);
         }
     }
 }

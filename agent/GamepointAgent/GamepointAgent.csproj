@@ -15,4 +15,8 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Content Include="bg.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -295,11 +295,20 @@ export class SessionService {
   }
 
   async logoutStationSession(
-    stationName: string
+    stationName: string,
+    agentKey?: string | null
   ): Promise<
     { success: true; remaining_seconds: number } | { error: string }
   > {
     await this.sessionRepo.expireOverdue();
+
+    if (agentKey) {
+      const station = await this.stationRepo.findByKey(agentKey);
+      if (station) {
+        stationName = station.name;
+      }
+    }
+
     const active = await this.sessionRepo.findActiveByStation(stationName);
     if (!active || !active.ends_at) {
       return { success: true, remaining_seconds: 0 };
@@ -310,13 +319,17 @@ export class SessionService {
       Math.floor((new Date(active.ends_at).getTime() - Date.now()) / 1000)
     );
 
-    if (remaining > 0) {
-      if (active.user_id) {
-        await this.sessionRepo.discardPausedForUser(active.user_id);
+    try {
+      if (remaining > 0) {
+        if (active.user_id) {
+          await this.sessionRepo.discardPausedForUser(active.user_id);
+        }
+        await this.sessionRepo.pauseActiveByStation(stationName, remaining);
+      } else {
+        await this.sessionRepo.endActiveByStation(stationName);
       }
-      await this.sessionRepo.pauseActiveByStation(stationName, remaining);
-    } else {
-      await this.sessionRepo.endActiveByStation(stationName);
+    } catch (e) {
+      return { error: `Failed to save the session: ${e instanceof Error ? e.message : "unknown error"}` };
     }
 
     return { success: true, remaining_seconds: remaining };
@@ -330,12 +343,20 @@ export class SessionService {
 
   async resumeSession(
     userId: string,
-    stationName: string
+    stationName: string,
+    agentKey?: string | null
   ): Promise<
     | { success: true; remaining_seconds: number }
     | { error: string }
   > {
     await this.sessionRepo.expireOverdue();
+
+    if (agentKey) {
+      const station = await this.stationRepo.findByKey(agentKey);
+      if (station) {
+        stationName = station.name;
+      }
+    }
 
     const paused = await this.sessionRepo.findPausedForUser(userId);
     if (!paused) {
@@ -364,17 +385,28 @@ export class SessionService {
 
   async getActiveForUser(
     userId: string
-  ): Promise<{ session: Session | null; remaining_seconds: number }> {
+  ): Promise<{
+    session: Session | null;
+    remaining_seconds: number;
+    resume_seconds: number;
+  }> {
     await this.sessionRepo.expireOverdue();
-    const session = await this.sessionRepo.findActiveForUser(userId);
+    const [session, paused] = await Promise.all([
+      this.sessionRepo.findActiveForUser(userId),
+      this.sessionRepo.findPausedForUser(userId),
+    ]);
     if (!session || !session.ends_at) {
-      return { session: null, remaining_seconds: 0 };
+      return {
+        session: null,
+        remaining_seconds: 0,
+        resume_seconds: paused?.resume_seconds ?? 0,
+      };
     }
     const remaining = Math.max(
       0,
       Math.floor((new Date(session.ends_at).getTime() - Date.now()) / 1000)
     );
-    return { session, remaining_seconds: remaining };
+    return { session, remaining_seconds: remaining, resume_seconds: 0 };
   }
 
   async getAgentStatus(agentKey: string): Promise<
@@ -384,6 +416,10 @@ export class SessionService {
         remaining_seconds: number;
         station_name: string;
         user_name: string | null;
+        user_id: string | null;
+        user_points: number | null;
+        user_gfunds: number | null;
+        user_avatar: string | null;
       }
   > {
     const station = await this.stationRepo.findByKey(agentKey);
@@ -401,6 +437,10 @@ export class SessionService {
         remaining_seconds: 0,
         station_name: station.name,
         user_name: null,
+        user_id: null,
+        user_points: null,
+        user_gfunds: null,
+        user_avatar: null,
       };
     }
 
@@ -409,11 +449,19 @@ export class SessionService {
       Math.floor((new Date(active.ends_at).getTime() - Date.now()) / 1000)
     );
 
+    const user = active.user_id
+      ? await this.userRepo.findById(active.user_id)
+      : null;
+
     return {
       locked: remaining <= 0,
       remaining_seconds: remaining,
       station_name: station.name,
       user_name: active.user_name,
+      user_id: active.user_id ?? null,
+      user_points: user?.points ?? null,
+      user_gfunds: user?.gfunds ?? null,
+      user_avatar: user?.avatar_url ?? null,
     };
   }
 

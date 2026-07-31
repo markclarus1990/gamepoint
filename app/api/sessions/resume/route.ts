@@ -20,7 +20,8 @@ export async function POST(req: Request) {
     return Response.json({ error: "user_id and station_name are required" }, { status: 400 });
   }
 
-  const result = await sessionService.resumeSession(user_id, station_name);
+  const agentKey = req.headers.get("x-agent-key");
+  const result = await sessionService.resumeSession(user_id, station_name, agentKey);
 
   if ("error" in result) {
     return Response.json({ error: result.error }, { status: 400 });
