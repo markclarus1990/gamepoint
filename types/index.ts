@@ -4,6 +4,7 @@ export interface User {
   pin: string;
   points: number;
   reserved_points: number;
+  gfunds: number;
   avatar_url: string | null;
   is_admin?: boolean;
   created_at?: string;
@@ -16,6 +17,22 @@ export interface Session {
   amount: number;
   minutes: number;
   points: number;
+  station_name?: string | null;
+  status: string;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  payment_method?: string | null;
+  points_used?: number;
+  gfunds_used?: number;
+  created_at: string;
+}
+
+export interface Station {
+  id: string;
+  name: string;
+  agent_key: string;
+  is_active: boolean;
+  last_seen_at: string | null;
   created_at: string;
 }
 
@@ -66,6 +83,7 @@ export interface LoginResponse {
   is_admin: boolean;
   points: number;
   reserved_points: number;
+  gfunds: number;
 }
 
 export interface PaginatedResponse<T> {

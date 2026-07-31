@@ -46,6 +46,7 @@ export class AuthService {
       is_admin: user.is_admin ?? false,
       points: user.points,
       reserved_points: user.reserved_points,
+      gfunds: user.gfunds ?? 0,
     };
   }
 
@@ -83,6 +84,7 @@ export class AuthService {
       is_admin: user.is_admin ?? false,
       points: user.points,
       reserved_points: user.reserved_points,
+      gfunds: user.gfunds ?? 0,
     };
   }
 

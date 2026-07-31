@@ -1,0 +1,7 @@
+{
+  "serverUrl": "https://YOUR-APP-URL.com",
+  "agentKey": "PASTE-STATION-AGENT-KEY-HERE",
+  "stationName": "PC-1",
+  "pollSeconds": 10,
+  "stationPort": 3987
+}

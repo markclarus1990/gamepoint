@@ -44,6 +44,11 @@ export class UserRepository {
     await supabase.from("users").update({ points }).eq("id", id);
   }
 
+  async updateGfundsById(id: string, gfunds: number): Promise<void> {
+    const { error } = await supabase.from("users").update({ gfunds }).eq("id", id);
+    if (error) throw error;
+  }
+
   async updatePin(id: string, pin: string): Promise<void> {
     const { error } = await supabase.from("users").update({ pin }).eq("id", id);
     if (error) throw error;

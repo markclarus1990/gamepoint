@@ -6,6 +6,7 @@ type User = {
     id: string;
   name: string;
   points: number;
+  gfunds?: number;
 };
 
 type Session = {
@@ -36,6 +37,15 @@ type ShopOrder = {
   products?: { name: string; points_cost: number };
   users?: { name: string };
 };
+
+type Station = {
+  id: string;
+  name: string;
+  agent_key: string;
+  online: boolean;
+  active: { user_name: string; ends_at?: string } | null;
+  remaining_seconds: number;
+};
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -43,8 +53,12 @@ export default function Admin() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showDeductModal, setShowDeductModal] = useState(false);
-  const [amount, setAmount] = useState(0);
   const [deductAmount, setDeductAmount] = useState(0);
+  const [loadGfunds, setLoadGfunds] = useState(0);
+  const [loadPoints, setLoadPoints] = useState(0);
+  const [stations, setStations] = useState<Station[]>([]);
+  const [newStationName, setNewStationName] = useState("");
+  const [copiedKey, setCopiedKey] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [pending, setPending] = useState<Redeem[]>([]);
@@ -86,13 +100,21 @@ const loadShopOrders = async () => {
   setShopOrders(await res.json());
 };
 
+const loadStations = async () => {
+  const res = await fetch("/api/stations");
+  const data = await res.json();
+  setStations(data.stations || []);
+};
+
 useEffect(() => {
   loadPending();
   loadShopOrders();
+  loadStations();
 
   pollRef.current = setInterval(() => {
     loadPending();
     loadShopOrders();
+    loadStations();
   }, 5000);
 
   return () => {
@@ -129,29 +151,91 @@ const openHistory = (user: User) => {
     loadSessions(selectedUser.id);
   };
 
-  const addSession = async () => {
-    if (!selectedUser || amount <= 0) return;
+  const loadAccount = async () => {
+    if (!selectedUser || (loadGfunds <= 0 && loadPoints <= 0)) return;
 
-    const minutes = amount * 4;
-    const points = amount;
-
-    await fetch("/api/add-session", {
+    const res = await fetch("/api/admin/load", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        name: selectedUser.name,
-        amount,
-        minutes,
-        points,
+        user_id: selectedUser.id,
+        gfunds: loadGfunds,
+        points: loadPoints,
       }),
     });
 
+    const data = await res.json();
+
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+
     setShowModal(false);
-    setAmount(0);
+    setLoadGfunds(0);
+    setLoadPoints(0);
     loadUsers();
-    loadSessions(selectedUser.name);
+  };
+
+  const addStation = async () => {
+    if (!newStationName.trim()) return;
+
+    const res = await fetch("/api/stations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: newStationName.trim() }),
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+
+    setNewStationName("");
+    loadStations();
+    alert(`Station "${data.station.name}" added!\n\nAgent key: ${data.station.agent_key}\n\nPaste this key in the PC agent's config file.`);
+  };
+
+  const deleteStation = async (id: string) => {
+    if (!confirm("Delete this station?")) return;
+    await fetch(`/api/stations/${id}`, { method: "DELETE" });
+    loadStations();
+  };
+
+  const endStationSession = async (name: string) => {
+    if (!confirm(`End the active session on ${name}? The PC will lock.`)) return;
+    await fetch("/api/sessions/end", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ station_name: name }),
+    });
+    loadStations();
+  };
+
+  const copyKey = async (key: string) => {
+    try {
+      await navigator.clipboard.writeText(key);
+      setCopiedKey(key);
+    } catch {
+      prompt("Copy the agent key:", key);
+    }
+  };
+
+  const formatRemaining = (secs: number) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return h > 0
+      ? `${h}h ${m}m`
+      : `${m}m ${s}s`;
   };
 
   const filteredUsers = users.filter((u) =>
@@ -289,10 +373,10 @@ const filteredSessions = sessions.filter((s) => {
           {filteredUsers.map((u, i) => (
             <div key={i} className="flex justify-between items-center bg-gray-800 p-2 rounded">
 
-             <div>
+              <div>
               <div>{u.name}</div>
               <div className="text-xs text-yellow-400">
-                {u.points || 0} pts
+                ₱{u.gfunds || 0} • {u.points || 0} pts
               </div>
             </div>
 
@@ -304,7 +388,7 @@ const filteredSessions = sessions.filter((s) => {
                   }}
                   className="bg-green-600 px-2 py-1 rounded text-sm"
                 >
-                  Add Session
+                  Load
                 </button>
 
                 <button
@@ -484,30 +568,52 @@ const filteredSessions = sessions.filter((s) => {
           <div className="bg-gray-900 p-6 rounded-xl space-y-4 w-80">
 
             <h2 className="font-semibold">
-              Add Session - {selectedUser.name}
+              Load Account - {selectedUser.name}
             </h2>
 
-            <input
-              type="number"
-              placeholder="Enter amount"
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
-              className="w-full p-2 bg-gray-800 rounded"
-            />
-
             <div className="text-sm text-gray-400">
-              Time: {amount * 4} mins
+              Current: ₱{selectedUser.gfunds || 0} gfunds • {selectedUser.points || 0} pts
+            </div>
+
+            <div>
+              <input
+                type="number"
+                placeholder="Gfunds (pesos)"
+                value={loadGfunds}
+                onChange={(e) => setLoadGfunds(Number(e.target.value))}
+                className="w-full p-2 bg-gray-800 rounded"
+              />
+              <div className="text-xs text-gray-400 mt-1">
+                1₱ = 4 mins of gfunds time
+              </div>
+            </div>
+
+            <div>
+              <input
+                type="number"
+                placeholder="Bonus gamepoints"
+                value={loadPoints}
+                onChange={(e) => setLoadPoints(Number(e.target.value))}
+                className="w-full p-2 bg-gray-800 rounded"
+              />
+              <div className="text-xs text-gray-400 mt-1">
+                20 pts = 8 mins of game time
+              </div>
             </div>
 
             <button
-              onClick={addSession}
+              onClick={loadAccount}
               className="w-full bg-green-600 p-2 rounded"
             >
-              Confirm
+              Load
             </button>
 
             <button
-              onClick={() => setShowModal(false)}
+              onClick={() => {
+                setShowModal(false);
+                setLoadGfunds(0);
+                setLoadPoints(0);
+              }}
               className="w-full text-gray-400"
             >
               Cancel
@@ -517,6 +623,91 @@ const filteredSessions = sessions.filter((s) => {
 
         </div>
       )}
+
+      {/* STATIONS PANEL */}
+      <div className="mt-6 bg-gray-900 p-4 rounded-xl">
+        <h2 className="font-semibold mb-3">Stations (PCs)</h2>
+
+        <div className="flex gap-2 mb-4">
+          <input
+            placeholder="PC name (e.g. PC-1)"
+            value={newStationName}
+            onChange={(e) => setNewStationName(e.target.value)}
+            className="flex-1 p-2 bg-gray-800 rounded"
+          />
+          <button
+            onClick={addStation}
+            className="bg-purple-600 px-4 rounded"
+          >
+            Add PC
+          </button>
+        </div>
+
+        {stations.length === 0 ? (
+          <div className="text-gray-400 text-sm">
+            No stations yet. Add a PC above, then install the agent on it.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {stations.map((s) => (
+              <div
+                key={s.id}
+                className="flex justify-between items-center bg-gray-800 p-3 rounded"
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      s.active
+                        ? "bg-green-500"
+                        : s.online
+                          ? "bg-yellow-400"
+                          : "bg-gray-600"
+                    }`}
+                  />
+                  <div>
+                    <div className="font-semibold">{s.name}</div>
+                    {s.active ? (
+                      <div className="text-xs text-green-400">
+                        {s.active.user_name} • {formatRemaining(s.remaining_seconds)} left
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-400">
+                        {s.online ? "Online" : "Offline"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => copyKey(s.agent_key)}
+                    className="text-xs bg-gray-700 px-2 py-1 rounded"
+                    title="Copy agent key"
+                  >
+                    {copiedKey === s.agent_key ? "Copied!" : "Key"}
+                  </button>
+
+                  {s.active && (
+                    <button
+                      onClick={() => endStationSession(s.name)}
+                      className="text-xs bg-red-600 px-2 py-1 rounded"
+                    >
+                      End
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => deleteStation(s.id)}
+                    className="text-xs bg-gray-700 px-2 py-1 rounded"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       </div>
     </div>

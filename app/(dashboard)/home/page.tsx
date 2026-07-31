@@ -1,36 +1,108 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
-export default function Home() {
-  type HistoryItem = {
-  id: string;
-  type: "session" | "redeem";
-  amount: number;
-  minutes: number;
-  created_at: string;
-  status?: string;
-};
+
 type User = {
   id: string;
   name: string;
   points: number;
   reserved_points?: number;
+  gfunds?: number;
   avatar_url?: string;
 };
- const [user, setUser] = useState<any>(null);
-const [history, setHistory] = useState<any[]>([]);
 
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [redeem, setRedeem] = useState(20);
+type ActiveSession = {
+  id: string;
+  station_name?: string;
+  user_name: string;
+  minutes: number;
+  payment_method?: string;
+  ends_at?: string;
+};
+
+type StationInfo = {
+  id: string;
+  name: string;
+  online: boolean;
+  active: ActiveSession | null;
+};
+
+type HistoryEntry = {
+  type?: string;
+  status?: string;
+  station_name?: string;
+  payment_method?: string;
+  points_used?: number;
+  gfunds_used?: number;
+  amount?: number;
+  minutes?: number;
+  created_at?: string;
+};
+
+const POINTS_PER_REDEEM = 20;
+const MINUTES_PER_POINT_REDEEM = 8;
+const MINUTES_PER_PESO = 4;
+
+function formatClock(totalSeconds: number) {
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const mm = String(mins).padStart(2, "0");
+  const ss = String(secs).padStart(2, "0");
+  return hrs > 0
+    ? `${hrs}:${String(mins).padStart(2, "0")}:${ss}`
+    : `${mm}:${ss}`;
+}
+
+export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
-  // LOAD USER
+  const [active, setActive] = useState<ActiveSession | null>(null);
+  const [remaining, setRemaining] = useState(0);
+
+  const [payment, setPayment] = useState<"points" | "gfunds">("points");
+  const [amountInput, setAmountInput] = useState("");
+  const [stations, setStations] = useState<StationInfo[]>([]);
+  const [stationName, setStationName] = useState("");
+  const [stationDetected, setStationDetected] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadUser = async (id: string) => {
+    const res = await fetch(`/api/user?id=${id}`);
+    const data = await res.json();
+    setUser(data.user);
+    setHistory(data.history || []);
+    return data.user as User;
+  };
+
+  const loadActive = async (id: string) => {
+    try {
+      const res = await fetch(`/api/sessions/active?id=${id}`);
+      const data = await res.json();
+      setActive(data.session || null);
+      setRemaining(data.remaining_seconds || 0);
+    } catch {
+      // ignore poll errors
+    }
+  };
+
+  const loadStations = async () => {
+    try {
+      const res = await fetch("/api/stations");
+      const data = await res.json();
+      setStations(data.stations || []);
+    } catch {
+      setStations([]);
+    }
+  };
+
   useEffect(() => {
     const stored = localStorage.getItem("user");
-
     if (!stored) {
       window.location.href = "/login";
       return;
@@ -38,123 +110,108 @@ const [history, setHistory] = useState<any[]>([]);
 
     const parsed = JSON.parse(stored);
 
-    const loadUser = async () => {
-      const res = await fetch(`/api/user?id=${parsed.id}`);
-      const data = await res.json();
-
-      setUser(data.user);
-      setHistory(data.history || []);
+    const init = async () => {
+      await loadUser(parsed.id);
+      await loadActive(parsed.id);
+      await loadStations();
       setLoading(false);
+
+      try {
+        const res = await fetch("http://localhost:3987/station", {
+          signal: AbortSignal.timeout(1500),
+        });
+        const data = await res.json();
+        if (data?.station_name) {
+          setStationName(data.station_name);
+          setStationDetected(true);
+        }
+      } catch {
+        // agent not running on this machine — fall back to manual pick
+      }
     };
 
-    loadUser();
+    init();
+
+    tickRef.current = setInterval(() => {
+      loadActive(parsed.id);
+      loadStations();
+    }, 15000);
+
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
   }, []);
 
-  // FILTER (NO TIMEZONE BUG)
-  const filteredHistory = (history || []).filter((h) => {
-    if (!fromDate && !toDate) return true;
-    if (!h.created_at) return true;
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRemaining((r) => (r > 0 ? r - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-    const itemDate = h.created_at.slice(0, 10);
+  const minutesFromInput = (() => {
+    const value = Number(amountInput);
+    if (!value || value <= 0) return 0;
+    return payment === "points"
+      ? Math.floor(value / POINTS_PER_REDEEM) * MINUTES_PER_POINT_REDEEM
+      : value * MINUTES_PER_PESO;
+  })();
 
-    return (
-      (!fromDate || itemDate >= fromDate) &&
-      (!toDate || itemDate <= toDate)
-    );
-  });
-
-  // TOTALS
-  const totalAmount = filteredHistory.reduce(
-    (sum, h) => sum + (h.amount || 0),
-    0
-  );
-
-  const totalMinutes = filteredHistory.reduce(
-    (sum, h) => sum + (h.minutes || 0),
-    0
-  );
-
- const formatTime = (mins: number) => {
-  if (!mins) return "0 mins";
-
-  const hrs = Math.floor(mins / 60);
-  const remaining = mins % 60;
-
-  if (hrs > 0 && remaining > 0) {
-    return `${hrs} hr${hrs > 1 ? "s" : ""} ${remaining} min${remaining > 1 ? "s" : ""}`;
-  }
-
-  if (hrs > 0) {
-    return `${hrs} hr${hrs > 1 ? "s" : ""}`;
-  }
-
-  return `${remaining} min${remaining > 1 ? "s" : ""}`;
-};
-
-  // REDEEM
- const requestRedeem = async () => {
-  setSubmitting(true);
-
-  try {
-    const stored = JSON.parse(localStorage.getItem("user")!);
-
-    const res = await fetch("/api/redeem", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: stored.id,
-        points: redeem,
-      }),
-    });
-
-    const data = await res.json();
-
-    if (!data.success) {
-      throw new Error(data.error || "Failed to send redeem request");
+  const canStart = (() => {
+    if (!user || !stationName || starting) return false;
+    const value = Number(amountInput);
+    if (!value || value <= 0) return false;
+    if (payment === "points") {
+      if (value % POINTS_PER_REDEEM !== 0) return false;
+      return value <= (user.points || 0) - (user.reserved_points || 0);
     }
+    return value <= (user.gfunds || 0);
+  })();
 
-    const refresh = await fetch(`/api/user?id=${stored.id}`);
-    const refreshed = await refresh.json();
+  const startSession = async () => {
+    if (!user || !stationName) return;
 
-    setUser(refreshed.user);
-    setHistory(refreshed.history || []);
-    toast.success("Redeem request sent!");
-  } catch (err) {
-    console.error("REDEEM ERROR:", err);
-    toast.error(err instanceof Error ? err.message : "Something went wrong");
-  } finally {
-    setSubmitting(false);
-  }
-};
-  // CHANGE AVATAR
- const changeAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+    setStarting(true);
+    try {
+      const res = await fetch("/api/sessions/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.id,
+          station_name: stationName,
+          payment,
+          points: payment === "points" ? Number(amountInput) : undefined,
+          gfunds: payment === "gfunds" ? Number(amountInput) : undefined,
+        }),
+      });
 
-  const stored = JSON.parse(localStorage.getItem("user")!);
+      const data = await res.json();
 
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("user_id", stored.id);
+      if (data.error) {
+        toast.error(data.error);
+        return;
+      }
 
-  const res = await fetch("/api/update-avatar", {
-    method: "POST",
-    body: formData,
-  });
-
-  const data = await res.json();
-
-  setUser((prev: any) => ({
-    ...prev,
-    avatar_url: data.url,
-  }));
-};
+      toast.success(
+        `Session started on ${stationName} — ${data.remaining_seconds / 60} minutes`
+      );
+      setAmountInput("");
+      await loadUser(user.id);
+      await loadActive(user.id);
+      await loadStations();
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setStarting(false);
+    }
+  };
 
   if (loading) {
     return <div className="text-white p-10">Loading...</div>;
   }
-console.log("redeem:", redeem);
-console.log("points:", user?.points ?? 0);
+
+  const availablePoints = (user?.points || 0) - (user?.reserved_points || 0);
+  const gfunds = user?.gfunds || 0;
 
   return (
     <div className="min-h-screen bg-black text-white flex justify-center items-center">
@@ -163,126 +220,185 @@ console.log("points:", user?.points ?? 0);
         {/* HEADER */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-
-            {/* AVATAR */}
-            <label className="cursor-pointer">
-              <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-700 flex items-center justify-center">
-                {user?.avatar_url ? (
-                  <img
-                    src={user.avatar_url}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  "Change Avatar"
-                )}
-              </div>
-              <input type="file" hidden onChange={changeAvatar} />
-            </label>
-
+            <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-700 flex items-center justify-center">
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                "Player"
+              )}
+            </div>
             <div>
               <div className="text-xs text-gray-400">Player</div>
               <div className="text-lg font-semibold">{user?.name}</div>
             </div>
           </div>
-
-
-
         </div>
 
-        {/* POINTS */}
-        <div className="bg-gray-800 p-4 rounded-xl text-center text-lg">
-          Available Points: <b>{(user?.points || 0) - (user?.reserved_points || 0)}</b>
-          {user?.reserved_points > 0 && (
-            <span className="text-xs text-zinc-600 ml-1">
-              (<b className="text-amber-400">{user.reserved_points}</b> reserved)
-            </span>
-          )}
+        {/* BALANCES */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-gray-800 p-4 rounded-xl text-center">
+            <div className="text-xs text-gray-400">Gfunds</div>
+            <div className="text-xl font-bold text-green-400">₱{gfunds}</div>
+            <div className="text-[10px] text-gray-500">1₱ = 4 mins</div>
+          </div>
+          <div className="bg-gray-800 p-4 rounded-xl text-center">
+            <div className="text-xs text-gray-400">Gamepoints</div>
+            <div className="text-xl font-bold text-purple-400">
+              {availablePoints}
+              {user?.reserved_points ? (
+                <span className="text-xs text-gray-500">
+                  {" "}
+                  ({user.reserved_points} reserved)
+                </span>
+              ) : null}
+            </div>
+            <div className="text-[10px] text-gray-500">20 pts = 8 mins</div>
+          </div>
         </div>
 
-        {/* FILTER */}
+        {/* ACTIVE SESSION */}
+        {active && active.ends_at && (
+          <div className="bg-green-900/40 border border-green-600 p-4 rounded-xl">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-xs text-green-300">
+                  Active session — {active.station_name}
+                </div>
+                <div className="text-3xl font-black text-green-400 tabular-nums">
+                  {formatClock(remaining)}
+                </div>
+              </div>
+              <div className="text-right text-xs text-green-200">
+                <div>ends {new Date(active.ends_at).toLocaleTimeString()}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* START SESSION */}
+        <div className="bg-gray-800 p-4 rounded-xl space-y-4">
+          <div className="font-semibold">
+            {active ? "Extend Session" : "Start Session"}
+          </div>
+
+          {/* PAYMENT TOGGLE */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setPayment("points")}
+              className={`p-2 rounded-lg text-sm font-semibold ${
+                payment === "points"
+                  ? "bg-purple-600"
+                  : "bg-gray-700 hover:bg-gray-600"
+              }`}
+            >
+              Gamepoints
+            </button>
+            <button
+              onClick={() => setPayment("gfunds")}
+              className={`p-2 rounded-lg text-sm font-semibold ${
+                payment === "gfunds"
+                  ? "bg-green-600"
+                  : "bg-gray-700 hover:bg-gray-600"
+              }`}
+            >
+              Gfunds
+            </button>
+          </div>
+
+          {/* STATION */}
+          <div>
+            <div className="text-xs text-gray-400 mb-1">
+              {stationDetected ? "Detected PC" : "Select PC"}
+            </div>
+            <select
+              value={stationName}
+              onChange={(e) => setStationName(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700"
+            >
+              <option value="">{stationDetected ? "Loading PC..." : "Select a PC..."}</option>
+              {stations.map((s) => (
+                <option key={s.id} value={s.name}>
+                  {s.name}
+                  {s.active ? " (occupied)" : s.online ? " (online)" : " (offline)"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* AMOUNT */}
+          <div>
+            <div className="text-xs text-gray-400 mb-1">
+              {payment === "points"
+                ? `Enter points (multiple of ${POINTS_PER_REDEEM})`
+                : "Enter amount in pesos"}
+            </div>
+            <input
+              type="number"
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700"
+              placeholder={payment === "points" ? "20" : "10"}
+            />
+            <div className="text-xs text-gray-400 mt-1">
+              Time: {minutesFromInput} mins
+            </div>
+            {payment === "points" && amountInput && Number(amountInput) % POINTS_PER_REDEEM !== 0 && (
+              <div className="text-xs text-red-400 mt-1">
+                Must be a multiple of {POINTS_PER_REDEEM}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={startSession}
+            disabled={!canStart}
+            className={`w-full p-3 rounded-lg font-semibold disabled:opacity-40 disabled:cursor-not-allowed ${
+              payment === "points"
+                ? "bg-purple-600 hover:bg-purple-500"
+                : "bg-green-600 hover:bg-green-500"
+            }`}
+          >
+            {starting
+              ? "Starting..."
+              : active
+                ? `Extend +${Math.floor(minutesFromInput)} mins`
+                : `Start ${minutesFromInput} mins`}
+          </button>
+        </div>
+
+        {/* HISTORY */}
         <div className="bg-gray-800 p-4 rounded-xl space-y-3">
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                const today = new Date();
-                const f = `${today.getFullYear()}-${String(
-                  today.getMonth() + 1
-                ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-                setFromDate(f);
-                setToDate(f);
-              }}
-              className="bg-blue-600 px-2 py-1 rounded text-xs"
-            >
-              Today
-            </button>
-
-            <button
-              onClick={() => {
-                const d = new Date();
-                d.setDate(d.getDate() - 7);
-
-                const from = `${d.getFullYear()}-${String(
-                  d.getMonth() + 1
-                ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-                const today = new Date();
-                const to = `${today.getFullYear()}-${String(
-                  today.getMonth() + 1
-                ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-                setFromDate(from);
-                setToDate(to);
-              }}
-              className="bg-purple-600 px-2 py-1 rounded text-xs"
-            >
-              7 Days
-            </button>
-
-            <button
-              onClick={() => {
-                setFromDate("");
-                setToDate("");
-              }}
-              className="bg-gray-700 px-2 py-1 rounded text-xs"
-            >
-              All
-            </button>
-          </div>
-
-          {/* TOTALS */}
-          <div className="bg-gray-700 p-3 rounded-lg text-sm">
-            <div className="flex justify-between">
-              <span>Total Spent</span>
-              <span>₱{totalAmount}</span>
-            </div>
-            <div className="flex justify-between mt-1">
-              <span>Playtime</span>
-              <span>{formatTime(totalMinutes)}</span>
+          <div className="flex justify-between">
+            <div className="font-semibold">Session History</div>
+            <div className="text-xs text-gray-400">
+              {history.reduce((s, h) => s + (h.minutes || 0), 0)} mins total
             </div>
           </div>
 
-          {/* HISTORY */}
-          <div className="font-semibold">Session History</div>
-
-          {filteredHistory.length === 0 ? (
+          {history.length === 0 ? (
             <div className="text-sm text-gray-400">No sessions yet</div>
           ) : (
-            filteredHistory.map((h, i) => (
-              <div
-                key={i}
-                className="bg-gray-700 p-3 rounded-lg flex justify-between"
-              >
+            history.slice(0, 15).map((h, i) => (
+              <div key={i} className="bg-gray-700 p-3 rounded-lg flex justify-between">
                 <div>
                   <div>
-                    {h.type === "redeem"
-                      ? `${h.amount} pts • ${h.minutes} mins`
-                      : `₱${h.amount} • ${h.minutes} mins`}
+                    {h.payment_method === "points"
+                      ? `${h.points_used ?? h.amount} pts • ${h.minutes} mins`
+                      : h.payment_method === "gfunds"
+                        ? `₱${h.gfunds_used ?? h.amount} • ${h.minutes} mins`
+                        : h.type === "redeem"
+                          ? `${h.amount} pts • ${h.minutes} mins`
+                          : `₱${h.amount} • ${h.minutes} mins`}
+                    {h.station_name ? (
+                      <span className="text-xs text-gray-400 ml-1">
+                        ({h.station_name})
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-xs text-gray-400">
-                    {new Date(h.created_at).toLocaleString()}
+                    {h.created_at ? new Date(h.created_at).toLocaleString() : ""}
                   </div>
                 </div>
-
                 {h.type === "redeem" && (
                   <div className="text-xs px-2 py-1 rounded bg-purple-600">
                     {h.status === "approved" ? "Redeemed" : "Pending"}
@@ -291,37 +407,6 @@ console.log("points:", user?.points ?? 0);
               </div>
             ))
           )}
-        </div>
-
-        {/* REDEEM */}
-        <div className="space-y-3">
-          <div className="text-sm text-gray-400">
-            Enter Points to Redeem
-          </div>
-
-          <input
-            type="number"
-            value={redeem}
-            onChange={(e) => setRedeem(Number(e.target.value))}
-            disabled={submitting}
-            className="w-full p-3 rounded bg-gray-800 disabled:opacity-50"
-          />
-
-          <div className="text-xs text-gray-400">
-            {user.points < 20
-              ? `You need ${20 - user.points} more points`
-              : "Must be multiple of 20"}
-          </div>
-
-<button
-  onClick={() => {
-    requestRedeem();
-  }}
-  disabled={submitting}
-  className="w-full p-3 rounded-lg bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
->
-  {submitting ? "Submitting..." : "REQUEST REDEEM"}
-</button>
         </div>
 
       </div>
