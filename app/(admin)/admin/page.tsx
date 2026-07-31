@@ -59,6 +59,9 @@ export default function Admin() {
   const [stations, setStations] = useState<Station[]>([]);
   const [newStationName, setNewStationName] = useState("");
   const [copiedKey, setCopiedKey] = useState("");
+  const [openStation, setOpenStation] = useState<Station | null>(null);
+  const [openPesos, setOpenPesos] = useState(0);
+  const [openMinutes, setOpenMinutes] = useState(0);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [pending, setPending] = useState<Redeem[]>([]);
@@ -217,6 +220,33 @@ const openHistory = (user: User) => {
       },
       body: JSON.stringify({ station_name: name }),
     });
+    loadStations();
+  };
+
+  const openStationTime = async () => {
+    if (!openStation || openMinutes <= 0) return;
+
+    const res = await fetch("/api/sessions/open", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        station_name: openStation.name,
+        minutes: openMinutes,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+
+    setOpenStation(null);
+    setOpenPesos(0);
+    setOpenMinutes(0);
     loadStations();
   };
 
@@ -624,6 +654,74 @@ const filteredSessions = sessions.filter((s) => {
         </div>
       )}
 
+      {/* OPEN TIME MODAL */}
+      {openStation && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center">
+          <div className="bg-gray-900 p-6 rounded-xl space-y-4 w-80">
+            <h2 className="font-semibold">Open Time - {openStation.name}</h2>
+
+            <div>
+              <div className="text-sm text-gray-400 mb-1">Amount paid (₱)</div>
+              <input
+                type="number"
+                value={openPesos}
+                onChange={(e) => {
+                  const p = Number(e.target.value);
+                  setOpenPesos(p);
+                  setOpenMinutes(p * 4);
+                }}
+                className="w-full p-2 bg-gray-800 rounded"
+                placeholder="0"
+              />
+            </div>
+
+            <div>
+              <div className="text-sm text-gray-400 mb-1">Minutes</div>
+              <input
+                type="number"
+                value={openMinutes}
+                onChange={(e) => setOpenMinutes(Number(e.target.value))}
+                className="w-full p-2 bg-gray-800 rounded"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              {[15, 30, 60, 120].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setOpenMinutes(m);
+                    setOpenPesos(m / 4);
+                  }}
+                  className="flex-1 bg-gray-700 px-2 py-1 rounded text-xs"
+                >
+                  {m}m
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={openStationTime}
+              disabled={openMinutes <= 0}
+              className="w-full bg-green-600 p-2 rounded disabled:opacity-40"
+            >
+              Open {openMinutes > 0 ? `${openMinutes} mins` : "Time"}
+            </button>
+
+            <button
+              onClick={() => {
+                setOpenStation(null);
+                setOpenPesos(0);
+                setOpenMinutes(0);
+              }}
+              className="w-full text-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* STATIONS PANEL */}
       <div className="mt-6 bg-gray-900 p-4 rounded-xl">
         <h2 className="font-semibold mb-3">Stations (PCs)</h2>
@@ -686,6 +784,19 @@ const filteredSessions = sessions.filter((s) => {
                   >
                     {copiedKey === s.agent_key ? "Copied!" : "Key"}
                   </button>
+
+                  {!s.active && (
+                    <button
+                      onClick={() => {
+                        setOpenStation(s);
+                        setOpenPesos(0);
+                        setOpenMinutes(0);
+                      }}
+                      className="text-xs bg-green-600 px-2 py-1 rounded"
+                    >
+                      Open Time
+                    </button>
+                  )}
 
                   {s.active && (
                     <button

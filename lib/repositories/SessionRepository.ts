@@ -92,6 +92,57 @@ export class SessionRepository {
       .eq("status", "active");
   }
 
+  async findPausedForUser(userId: string): Promise<Session | null> {
+    const { data } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("status", "paused")
+      .gt("resume_seconds", 0)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data;
+  }
+
+  async pauseActiveByStation(stationName: string, resumeSeconds: number): Promise<void> {
+    await supabase
+      .from("sessions")
+      .update({ status: "paused", resume_seconds: resumeSeconds })
+      .eq("station_name", stationName)
+      .eq("status", "active");
+  }
+
+  async discardPausedForUser(userId: string): Promise<void> {
+    await supabase
+      .from("sessions")
+      .update({ status: "completed", resume_seconds: 0 })
+      .eq("user_id", userId)
+      .eq("status", "paused");
+  }
+
+  async resumeSession(id: string, stationName: string, seconds: number): Promise<void> {
+    const endsAt = new Date(Date.now() + seconds * 1000).toISOString();
+    const { error } = await supabase
+      .from("sessions")
+      .update({
+        status: "active",
+        ends_at: endsAt,
+        station_name: stationName,
+        resume_seconds: 0,
+      })
+      .eq("id", id);
+    if (error) throw error;
+  }
+
+  async updateEndsAt(id: string, endsAt: string): Promise<void> {
+    const { error } = await supabase
+      .from("sessions")
+      .update({ ends_at: endsAt })
+      .eq("id", id);
+    if (error) throw error;
+  }
+
   async findAllWithMinutes(limit?: number, offset?: number): Promise<Pick<Session, "user_name" | "minutes">[]> {
     let query = supabase.from("sessions").select("user_name, minutes");
     if (limit) query = query.limit(limit);

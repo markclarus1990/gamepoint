@@ -207,6 +207,8 @@ export class SessionService {
         gfunds_used: gfundsUsed,
       });
 
+      await this.sessionRepo.discardPausedForUser(userId);
+
       const updatedUser = await this.userRepo.findById(userId);
       const freshUser = updatedUser ?? user;
       await this.userRepo.updatePointsById(
@@ -232,11 +234,132 @@ export class SessionService {
     }
   }
 
+  async openStationSession(
+    stationName: string,
+    minutes: number
+  ): Promise<{ success: true; session: Session } | { error: string }> {
+    if (!Number.isInteger(minutes) || minutes <= 0) {
+      return { error: "Minutes must be a positive whole number" };
+    }
+
+    const station = await this.stationRepo.findByName(stationName);
+    if (!station) {
+      return { error: "Station not found" };
+    }
+
+    await this.sessionRepo.expireOverdue();
+
+    const active = await this.sessionRepo.findActiveByStation(stationName);
+    if (active) {
+      if (active.user_id) {
+        return { error: `Station is occupied by ${active.user_name}` };
+      }
+      const base = active.ends_at
+        ? new Date(active.ends_at).getTime()
+        : Date.now();
+      const endsAt = new Date(base + minutes * 60 * 1000);
+      await this.sessionRepo.updateEndsAt(active.id, endsAt.toISOString());
+      return { success: true, session: { ...active, ends_at: endsAt.toISOString() } };
+    }
+
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + minutes * 60 * 1000);
+
+    try {
+      const session = await this.sessionRepo.create({
+        user_name: "Walk-in",
+        amount: 0,
+        minutes,
+        points: 0,
+        station_name: stationName,
+        status: "active",
+        starts_at: now.toISOString(),
+        ends_at: endsAt.toISOString(),
+        payment_method: "cash",
+        points_used: 0,
+        gfunds_used: 0,
+      });
+      return { success: true, session };
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to open time";
+      return { error: message };
+    }
+  }
+
   async endStationSession(
     stationName: string
   ): Promise<{ success: true } | { error: string }> {
     await this.sessionRepo.endActiveByStation(stationName);
     return { success: true };
+  }
+
+  async logoutStationSession(
+    stationName: string
+  ): Promise<
+    { success: true; remaining_seconds: number } | { error: string }
+  > {
+    await this.sessionRepo.expireOverdue();
+    const active = await this.sessionRepo.findActiveByStation(stationName);
+    if (!active || !active.ends_at) {
+      return { success: true, remaining_seconds: 0 };
+    }
+
+    const remaining = Math.max(
+      0,
+      Math.floor((new Date(active.ends_at).getTime() - Date.now()) / 1000)
+    );
+
+    if (remaining > 0) {
+      if (active.user_id) {
+        await this.sessionRepo.discardPausedForUser(active.user_id);
+      }
+      await this.sessionRepo.pauseActiveByStation(stationName, remaining);
+    } else {
+      await this.sessionRepo.endActiveByStation(stationName);
+    }
+
+    return { success: true, remaining_seconds: remaining };
+  }
+
+  async getResumeSeconds(userId: string): Promise<number> {
+    await this.sessionRepo.expireOverdue();
+    const paused = await this.sessionRepo.findPausedForUser(userId);
+    return paused?.resume_seconds ?? 0;
+  }
+
+  async resumeSession(
+    userId: string,
+    stationName: string
+  ): Promise<
+    | { success: true; remaining_seconds: number }
+    | { error: string }
+  > {
+    await this.sessionRepo.expireOverdue();
+
+    const paused = await this.sessionRepo.findPausedForUser(userId);
+    if (!paused) {
+      return { error: "No session to resume" };
+    }
+    const seconds = paused.resume_seconds ?? 0;
+    if (seconds <= 0) {
+      return { error: "No session to resume" };
+    }
+
+    const station = await this.stationRepo.findByName(stationName);
+    if (!station) {
+      return { error: "Station not found. Add it in the admin panel first." };
+    }
+
+    const occupant = await this.sessionRepo.findActiveByStation(stationName);
+    if (occupant && occupant.user_id !== userId) {
+      return { error: `Station is occupied by ${occupant.user_name}` };
+    }
+
+    await this.sessionRepo.discardPausedForUser(userId);
+    await this.sessionRepo.resumeSession(paused.id, stationName, seconds);
+
+    return { success: true, remaining_seconds: seconds };
   }
 
   async getActiveForUser(

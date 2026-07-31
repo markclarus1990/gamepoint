@@ -24,6 +24,7 @@ export interface Session {
   payment_method?: string | null;
   points_used?: number;
   gfunds_used?: number;
+  resume_seconds?: number;
   created_at: string;
 }
 
