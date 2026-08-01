@@ -565,6 +565,7 @@ export class SessionService {
       remaining_seconds: number;
       screenshot_url: string | null;
       screenshot_at: string | null;
+      user_avatar: string | null;
     }[]
   > {
     await this.sessionRepo.expireOverdue();
@@ -581,6 +582,14 @@ export class SessionService {
         byStation.set(s.station_name, s);
       }
     }
+
+    const activeNames = [
+      ...new Set(
+        activeSessions.map((s) => s.user_name).filter((n): n is string => !!n)
+      ),
+    ];
+    const avatarRows = await this.userRepo.findNamesWithAvatars(activeNames);
+    const avatarByUser = new Map(avatarRows.map((u) => [u.name, u.avatar_url]));
 
     return stations.map((s) => {
       const active = byStation.get(s.name) ?? null;
@@ -602,6 +611,7 @@ export class SessionService {
         remaining_seconds: remaining,
         screenshot_url: s.screenshot_url ?? null,
         screenshot_at: s.screenshot_at ?? null,
+        user_avatar: active ? avatarByUser.get(active.user_name) ?? null : null,
       };
     });
   }

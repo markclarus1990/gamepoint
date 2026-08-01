@@ -66,6 +66,7 @@ type Station = {
   remaining_seconds: number;
   screenshot_url?: string | null;
   screenshot_at?: string | null;
+  user_avatar?: string | null;
 };
 
 type Tab = "stations" | "requests" | "shop" | "users" | "history";
@@ -523,7 +524,18 @@ export default function Admin() {
                           <div className="font-bold truncate">{s.name}</div>
                           <div className="text-[11px] text-zinc-500">
                             {s.active ? (
-                              <span className="text-emerald-400">
+                              <span className="text-emerald-400 flex items-center gap-1.5">
+                                {s.user_avatar ? (
+                                  <img
+                                    src={s.user_avatar}
+                                    alt={s.active.user_name}
+                                    className="w-5 h-5 rounded-full object-cover bg-zinc-700 ring-1 ring-emerald-400/40"
+                                  />
+                                ) : (
+                                  <span className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center">
+                                    <Users className="w-3 h-3 text-zinc-400" />
+                                  </span>
+                                )}
                                 {s.active.user_name} •{" "}
                                 {formatRemaining(s.remaining_seconds)} left
                               </span>
@@ -1213,16 +1225,31 @@ function ScreenshotModal({
                     : "bg-zinc-600"
               } rounded-full`}
             />
-            <div className="min-w-0">
-              <div className="font-bold truncate">{live.name}</div>
-              <div className="text-[11px] text-zinc-500">
-                {live.active
-                  ? `${live.active.user_name} • ${formatRemainingShort(live.remaining_seconds)} left`
-                  : live.online
-                    ? "Online"
-                    : "Offline"}
+              <div className="min-w-0">
+                <div className="font-bold truncate">{live.name}</div>
+                <div className="text-[11px] text-zinc-500 flex items-center gap-1.5">
+                  {live.active && (
+                    <>
+                      {live.user_avatar ? (
+                        <img
+                          src={live.user_avatar}
+                          alt={live.active.user_name}
+                          className="w-4 h-4 rounded-full object-cover bg-zinc-700"
+                        />
+                      ) : (
+                        <span className="w-4 h-4 rounded-full bg-zinc-700 flex items-center justify-center">
+                          <Users className="w-2.5 h-2.5 text-zinc-400" />
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {live.active
+                    ? `${live.active.user_name} • ${formatRemainingShort(live.remaining_seconds)} left`
+                    : live.online
+                      ? "Online"
+                      : "Offline"}
+                </div>
               </div>
-            </div>
             {fresh && (
               <span className="hidden sm:flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full">
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
