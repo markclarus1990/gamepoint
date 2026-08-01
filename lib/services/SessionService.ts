@@ -234,6 +234,92 @@ export class SessionService {
     }
   }
 
+  async addTime(params: {
+    userId: string;
+    stationName: string;
+    payment: "points" | "gfunds";
+    points?: number;
+    gfunds?: number;
+  }): Promise<
+    | { error: string }
+    | { success: true; remaining_seconds: number; user: User }
+  > {
+    const { userId, stationName, payment } = params;
+
+    const user = await this.userRepo.findById(userId);
+    if (!user) {
+      return { error: "User not found" };
+    }
+
+    await this.sessionRepo.expireOverdue();
+
+    const active = await this.sessionRepo.findActiveByStation(stationName);
+    if (!active) {
+      return { error: "No active session on this station" };
+    }
+    if (active.user_id !== userId) {
+      return { error: "This session belongs to another player" };
+    }
+
+    let minutes = 0;
+    let pointsUsed = 0;
+    let gfundsUsed = 0;
+
+    if (payment === "points") {
+      const pts = params.points ?? 0;
+      if (!Number.isInteger(pts) || pts <= 0 || pts % POINTS_PER_REDEEM !== 0) {
+        return { error: `Points must be a multiple of ${POINTS_PER_REDEEM}` };
+      }
+      const available = user.points - (user.reserved_points || 0);
+      if (pts > available) {
+        return { error: "Not enough points" };
+      }
+      pointsUsed = pts;
+      minutes = (pts / POINTS_PER_REDEEM) * MINUTES_PER_POINT_REDEEM;
+    } else {
+      const g = params.gfunds ?? 0;
+      if (!Number.isInteger(g) || g <= 0) {
+        return { error: "Gfunds must be a positive whole number" };
+      }
+      if (g > (user.gfunds || 0)) {
+        return { error: "Not enough gfunds" };
+      }
+      gfundsUsed = g;
+      minutes = g * MINUTES_PER_PESO;
+    }
+
+    const baseMs = Math.max(
+      active.ends_at ? new Date(active.ends_at).getTime() : Date.now(),
+      Date.now()
+    );
+    const newEndsAt = new Date(baseMs + minutes * 60 * 1000);
+
+    try {
+      await this.sessionRepo.updateEndsAt(active.id, newEndsAt.toISOString());
+      await this.userRepo.updatePointsById(userId, user.points - pointsUsed);
+      await this.userRepo.updateGfundsById(
+        userId,
+        (user.gfunds || 0) - gfundsUsed
+      );
+
+      return {
+        success: true,
+        remaining_seconds: Math.max(
+          0,
+          Math.floor((newEndsAt.getTime() - Date.now()) / 1000)
+        ),
+        user: {
+          ...user,
+          points: user.points - pointsUsed,
+          gfunds: (user.gfunds || 0) - gfundsUsed,
+        },
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to add time";
+      return { error: message };
+    }
+  }
+
   async openStationSession(
     stationName: string,
     minutes: number
@@ -420,6 +506,7 @@ export class SessionService {
         user_points: number | null;
         user_gfunds: number | null;
         user_avatar: string | null;
+        pending_command: string | null;
       }
   > {
     const station = await this.stationRepo.findByKey(agentKey);
@@ -441,6 +528,7 @@ export class SessionService {
         user_points: null,
         user_gfunds: null,
         user_avatar: null,
+        pending_command: station.command ?? null,
       };
     }
 
@@ -462,6 +550,7 @@ export class SessionService {
       user_points: user?.points ?? null,
       user_gfunds: user?.gfunds ?? null,
       user_avatar: user?.avatar_url ?? null,
+      pending_command: station.command ?? null,
     };
   }
 

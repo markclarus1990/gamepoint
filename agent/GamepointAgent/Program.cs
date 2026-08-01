@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Net;
 using System.Net.Http.Json;
@@ -34,6 +35,8 @@ internal static class Program
         public int? UserGfunds { get; set; }
         [JsonPropertyName("user_avatar")]
         public string? UserAvatar { get; set; }
+        [JsonPropertyName("pending_command")]
+        public string? PendingCommand { get; set; }
     }
 
     private sealed class LoginUser
@@ -329,6 +332,12 @@ internal static class Program
         public string StationName => _cfg.StationName;
         public LoginUser? CurrentPlayer { get; set; }
 
+        public string? CurrentUserId => _current?.UserId;
+
+        public int? CurrentPoints => _current?.UserPoints;
+
+        public int? CurrentGfunds => _current?.UserGfunds;
+
         public ControllerForm(Config cfg)
         {
             _cfg = cfg;
@@ -369,7 +378,7 @@ internal static class Program
             };
         }
 
-        private async Task PollAsync()
+        public async Task PollAsync()
         {
             _pollTimer.Stop();
             try
@@ -379,6 +388,11 @@ internal static class Program
                 var st = await resp.Content.ReadFromJsonAsync<Status>();
                 if (st is null) return;
                 ApplyStatus(st);
+                if (!string.IsNullOrEmpty(st.PendingCommand))
+                {
+                    await AckCommandAsync();
+                    ExecuteCommand(st.PendingCommand);
+                }
             }
             catch
             {
@@ -387,6 +401,52 @@ internal static class Program
             finally
             {
                 _pollTimer.Start();
+            }
+        }
+
+        private async Task AckCommandAsync()
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Post, "api/agent/command-done");
+                req.Headers.Add("x-agent-key", _cfg.AgentKey);
+                using var resp = await _http.SendAsync(req);
+                _ = resp;
+            }
+            catch
+            {
+                // will retry on the next poll
+            }
+        }
+
+        private void ExecuteCommand(string command)
+        {
+            if (command != "shutdown" && command != "restart") return;
+            try
+            {
+                MessageBox.Show(
+                    command == "restart"
+                        ? "This PC will restart in 20 seconds."
+                        : "This PC will shut down in 20 seconds.",
+                    "Gamepoint Agent",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+            catch
+            {
+            }
+            try
+            {
+                var psi = new ProcessStartInfo("shutdown", command == "restart" ? "/r /t 20" : "/s /t 20")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                Process.Start(psi);
+            }
+            catch
+            {
+                // command failed — nothing else we can do
             }
         }
 
@@ -618,6 +678,7 @@ internal static class Program
         private LoginUser? _user;
         private string _payment = "points";
         private int _selectedAmount;
+        private NumericUpDown? _numCustom;
         private int _resumeSeconds;
 
         public bool AllowClose { get; set; }
@@ -827,6 +888,8 @@ internal static class Program
             _lblStatus.Visible = false;
             _lblError.Text = "";
             _lblStartError.Text = "";
+            _txtName.Text = "";
+            _txtPin.Text = "";
             _txtName.Focus();
             Dbg($"ShowLogin login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} cardVisible={_card.Visible} cardLoc={_card.Location} formVisible={Visible}");
         }
@@ -888,6 +951,38 @@ internal static class Program
                 };
                 _amountPanel.Controls.Add(btn);
             }
+
+            if (payment == "gfunds")
+            {
+                var customBtn = QuickButton("Custom");
+                customBtn.Click += (_, _) =>
+                {
+                    _selectedAmount = (int)_numCustom!.Value;
+                    _lblTime.Text = FmtMinutes(_selectedAmount * 4);
+                    _lblStartError.Text = "";
+                };
+                _amountPanel.Controls.Add(customBtn);
+
+                _numCustom = new NumericUpDown
+                {
+                    Minimum = 1,
+                    Maximum = 100000,
+                    Value = 100,
+                    Width = 160,
+                    Height = 34,
+                    BackColor = C(COLOR_INPUT),
+                    ForeColor = Color.White,
+                    Font = F(12),
+                    BorderStyle = BorderStyle.FixedSingle
+                };
+                _numCustom.ValueChanged += (_, _) =>
+                {
+                    _selectedAmount = (int)_numCustom.Value;
+                    _lblTime.Text = FmtMinutes(_selectedAmount * 4);
+                    _lblStartError.Text = "";
+                };
+                _amountPanel.Controls.Add(_numCustom);
+            }
         }
 
         private async Task DoLoginAsync()
@@ -938,6 +1033,8 @@ internal static class Program
                     // no saved time — fall through to the payment panel
                 }
 
+                _txtName.Text = "";
+                _txtPin.Text = "";
                 ShowPayment();
             }
             catch
@@ -1077,9 +1174,12 @@ internal static class Program
         private readonly Label _station;
         private readonly Label _balances;
         private readonly PictureBox _avatar;
+        private readonly Button _btnAddTime;
+        private readonly Button _btnChangePin;
         private readonly Button _btnLogout;
         private readonly Button _btnMin;
         private bool _minimized;
+        private bool _hasUser;
         private bool _dragging;
         private Point _dragOffset;
 
@@ -1139,11 +1239,54 @@ internal static class Program
                 ForeColor = Color.White,
                 Font = F(9, FontStyle.Bold),
                 Height = 30,
-                Location = new Point(12, 78),
-                Size = new Size(236, 30),
+                Location = new Point(172, 78),
+                Size = new Size(76, 30),
                 FlatAppearance = { BorderSize = 0 }
             };
             _btnLogout.Click += async (_, _) => await LogoutAsync();
+            _btnAddTime = new Button
+            {
+                Text = "Add Time",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = C(COLOR_ACCENT),
+                ForeColor = Color.White,
+                Font = F(9, FontStyle.Bold),
+                Height = 30,
+                Location = new Point(12, 78),
+                Size = new Size(76, 30),
+                FlatAppearance = { BorderSize = 0 },
+                Visible = false
+            };
+            MakeGradientButton(_btnAddTime);
+            _btnAddTime.Click += (_, _) =>
+            {
+                if (string.IsNullOrEmpty(_controller.CurrentUserId)) return;
+                using var dlg = new AddTimeForm(_controller);
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    _ = _controller.PollAsync();
+                }
+            };
+            _btnChangePin = new Button
+            {
+                Text = "Change PIN",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = C("#334155"),
+                ForeColor = Color.White,
+                Font = F(9, FontStyle.Bold),
+                Height = 30,
+                Location = new Point(92, 78),
+                Size = new Size(76, 30),
+                FlatAppearance = { BorderSize = 0 },
+                Visible = false
+            };
+            _btnChangePin.Click += (_, _) =>
+            {
+                var userId = _controller.CurrentUserId;
+                if (string.IsNullOrEmpty(userId)) return;
+                using var dlg = new ChangePinForm(_controller.Http, userId);
+                dlg.ShowDialog(this);
+            };
             _btnMin = new Button
             {
                 Text = "–",
@@ -1169,6 +1312,8 @@ internal static class Program
             Controls.Add(_avatar);
             Controls.Add(_label);
             Controls.Add(_balances);
+            Controls.Add(_btnAddTime);
+            Controls.Add(_btnChangePin);
             Controls.Add(_btnLogout);
             Controls.Add(_btnMin);
 
@@ -1219,6 +1364,8 @@ internal static class Program
                 Region = RoundedRegion(this, 8);
                 _station.Visible = false;
                 _balances.Visible = false;
+                _btnAddTime.Visible = false;
+                _btnChangePin.Visible = false;
                 _btnLogout.Visible = false;
                 _btnMin.Visible = false;
                 _label.Font = F(12, FontStyle.Bold);
@@ -1230,6 +1377,8 @@ internal static class Program
                 Size = new Size(260, 138);
                 Region = RoundedRegion(this, 16);
                 _station.Visible = true;
+                _btnAddTime.Visible = _hasUser;
+                _btnChangePin.Visible = _hasUser;
                 _btnLogout.Visible = true;
                 _btnMin.Visible = true;
                 _label.Font = F(18, FontStyle.Bold);
@@ -1286,18 +1435,29 @@ internal static class Program
 
         public void SetBalances(int? gfunds, int? points)
         {
+            _hasUser = gfunds is not null && points is not null;
             if (gfunds is null || points is null)
             {
                 _balances.Visible = false;
+                _btnAddTime.Visible = false;
+                _btnChangePin.Visible = false;
                 return;
             }
             _balances.Text = $"₱{gfunds} gfunds • {points} pts";
             _balances.Visible = true;
+            if (!_minimized)
+            {
+                _btnAddTime.Visible = true;
+                _btnChangePin.Visible = true;
+            }
         }
 
         public void SetBalances()
         {
+            _hasUser = false;
             _balances.Visible = false;
+            _btnAddTime.Visible = false;
+            _btnChangePin.Visible = false;
         }
 
         public void SetAvatar(string? avatarUrl)
@@ -1308,6 +1468,274 @@ internal static class Program
         protected override void OnPaint(PaintEventArgs e)
         {
             PaintDarkOverlay(this, e, 165);
+        }
+    }
+
+    private sealed class ChangePinForm : Form
+    {
+        private readonly HttpClient _http;
+        private readonly string _userId;
+        private readonly TextBox _txtOld;
+        private readonly TextBox _txtNew;
+        private readonly TextBox _txtConfirm;
+        private readonly Label _lblError;
+
+        public ChangePinForm(HttpClient http, string userId)
+        {
+            _http = http;
+            _userId = userId;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = C(COLOR_BG);
+            Size = new Size(320, 372);
+            TopMost = true;
+
+            var title = DarkLabel("Change PIN", 16, Color.White, true);
+            var lblOld = DarkLabel("Current PIN", 10, Color.FromArgb(160, 160, 175));
+            var lblNew = DarkLabel("New PIN (4 digits)", 10, Color.FromArgb(160, 160, 175));
+            var lblConfirm = DarkLabel("Confirm New PIN", 10, Color.FromArgb(160, 160, 175));
+            _txtOld = PinBox();
+            _txtNew = PinBox();
+            _txtConfirm = PinBox();
+            _lblError = DarkLabel("", 10, C(COLOR_ERROR));
+            _lblError.MaximumSize = new Size(280, 50);
+            var btnSave = DarkButton("Save", COLOR_ACCENT);
+            MakeGradientButton(btnSave);
+            btnSave.Click += async (_, _) => await SaveAsync();
+            var btnCancel = DarkButton("Cancel", "#334155");
+            RoundButton(btnCancel, 10);
+            btnCancel.Click += (_, _) => Close();
+            _txtConfirm.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; _ = SaveAsync(); } };
+
+            title.Location = new Point(20, 16);
+            lblOld.Location = new Point(20, 60);
+            _txtOld.Location = new Point(20, 80);
+            lblNew.Location = new Point(20, 132);
+            _txtNew.Location = new Point(20, 152);
+            lblConfirm.Location = new Point(20, 204);
+            _txtConfirm.Location = new Point(20, 224);
+            _lblError.Location = new Point(20, 268);
+            btnSave.Location = new Point(20, 322);
+            btnSave.Size = new Size(180, 38);
+            btnCancel.Location = new Point(210, 322);
+            btnCancel.Size = new Size(90, 38);
+
+            Controls.AddRange(new Control[] { title, lblOld, _txtOld, lblNew, _txtNew, lblConfirm, _txtConfirm, _lblError, btnSave, btnCancel });
+        }
+
+        private static TextBox PinBox()
+        {
+            return new TextBox
+            {
+                BackColor = C(COLOR_INPUT),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = F(12),
+                Size = new Size(280, 36),
+                PasswordChar = '•'
+            };
+        }
+
+        private async Task SaveAsync()
+        {
+            var oldPin = _txtOld.Text;
+            var newPin = _txtNew.Text;
+            if (newPin.Length != 4 || !newPin.All(char.IsDigit))
+            {
+                _lblError.Text = "New PIN must be 4 digits";
+                return;
+            }
+            if (newPin != _txtConfirm.Text)
+            {
+                _lblError.Text = "PINs do not match";
+                return;
+            }
+
+            _lblError.Text = "Saving...";
+            try
+            {
+                using var resp = await _http.PostAsJsonAsync("api/change-password", new { user_id = _userId, oldPin, newPin });
+                var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                if (json.TryGetProperty("error", out var err))
+                {
+                    _lblError.Text = err.GetString() ?? "Change failed";
+                    return;
+                }
+                DialogResult = DialogResult.OK;
+                Close();
+            }
+            catch
+            {
+                _lblError.Text = "Cannot reach the server";
+            }
+        }
+    }
+
+    private sealed class AddTimeForm : Form
+    {
+        private readonly ControllerForm _controller;
+        private readonly Button _btnPoints;
+        private readonly Button _btnGfunds;
+        private readonly FlowLayoutPanel _amountPanel;
+        private readonly Label _lblTime;
+        private readonly Label _lblError;
+        private NumericUpDown? _numCustom;
+        private string _payment = "points";
+        private int _selectedAmount;
+
+        public AddTimeForm(ControllerForm controller)
+        {
+            _controller = controller;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = C(COLOR_BG);
+            Size = new Size(320, 390);
+            TopMost = true;
+
+            var title = DarkLabel("Add Time", 16, Color.White, true);
+            var lblBalances = DarkLabel(
+                $"₱{controller.CurrentGfunds ?? 0} gfunds • {controller.CurrentPoints ?? 0} pts",
+                10,
+                Color.FromArgb(170, 170, 185));
+            var lblPayWith = DarkLabel("Pay with:", 10, Color.FromArgb(160, 160, 175));
+            _btnPoints = DarkButton("Gamepoints", COLOR_ACCENT);
+            _btnGfunds = DarkButton("Gfunds", COLOR_INPUT);
+            RoundButton(_btnPoints, 10);
+            RoundButton(_btnGfunds, 10);
+            _btnPoints.Click += (_, _) => SetPayment("points");
+            _btnGfunds.Click += (_, _) => SetPayment("gfunds");
+            var lblAmount = DarkLabel("Amount:", 10, Color.FromArgb(160, 160, 175));
+            _amountPanel = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Size = new Size(280, 86),
+                BackColor = Color.Transparent
+            };
+            _lblTime = DarkLabel("", 12, C(COLOR_GREEN), true);
+            _lblError = DarkLabel("", 10, C(COLOR_ERROR));
+            _lblError.MaximumSize = new Size(280, 40);
+            var btnSave = DarkButton("Add Time", COLOR_ACCENT);
+            MakeGradientButton(btnSave);
+            btnSave.Click += async (_, _) => await ConfirmAsync();
+            var btnCancel = DarkButton("Cancel", "#334155");
+            RoundButton(btnCancel, 10);
+            btnCancel.Click += (_, _) => Close();
+
+            title.Location = new Point(20, 14);
+            lblBalances.Location = new Point(20, 48);
+            lblPayWith.Location = new Point(20, 80);
+            _btnPoints.Location = new Point(20, 100);
+            _btnPoints.Size = new Size(136, 36);
+            _btnGfunds.Location = new Point(164, 100);
+            _btnGfunds.Size = new Size(136, 36);
+            lblAmount.Location = new Point(20, 148);
+            _amountPanel.Location = new Point(20, 168);
+            _lblTime.Location = new Point(20, 262);
+            _lblError.Location = new Point(20, 288);
+            btnSave.Location = new Point(20, 336);
+            btnSave.Size = new Size(180, 40);
+            btnCancel.Location = new Point(210, 336);
+            btnCancel.Size = new Size(90, 40);
+
+            Controls.AddRange(new Control[] { title, lblBalances, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _lblError, btnSave, btnCancel });
+
+            SetPayment("points");
+        }
+
+        private void SetPayment(string payment)
+        {
+            _payment = payment;
+            _selectedAmount = 0;
+            _lblTime.Text = "";
+            _lblError.Text = "";
+            _btnPoints.BackColor = payment == "points" ? C(COLOR_ACCENT) : C(COLOR_INPUT);
+            _btnGfunds.BackColor = payment == "gfunds" ? C(COLOR_GREEN) : C(COLOR_INPUT);
+
+            _amountPanel.Controls.Clear();
+            var amounts = payment == "points" ? new[] { 20, 40, 60, 100 } : new[] { 10, 20, 50 };
+            foreach (var a in amounts)
+            {
+                var btn = QuickButton(payment == "points" ? $"{a} pts" : $"₱{a}");
+                btn.Tag = a;
+                btn.Click += (sender, _) =>
+                {
+                    if (sender is not Button b || b.Tag is not int amount) return;
+                    SelectAmount(amount);
+                };
+                _amountPanel.Controls.Add(btn);
+            }
+
+            if (payment == "gfunds")
+            {
+                var customBtn = QuickButton("Custom");
+                customBtn.Click += (_, _) => SelectAmount((int)_numCustom!.Value);
+                _amountPanel.Controls.Add(customBtn);
+
+                _numCustom = new NumericUpDown
+                {
+                    Minimum = 1,
+                    Maximum = 100000,
+                    Value = 100,
+                    Width = 160,
+                    Height = 34,
+                    BackColor = C(COLOR_INPUT),
+                    ForeColor = Color.White,
+                    Font = F(12),
+                    BorderStyle = BorderStyle.FixedSingle
+                };
+                _numCustom.ValueChanged += (_, _) => SelectAmount((int)_numCustom.Value);
+                _amountPanel.Controls.Add(_numCustom);
+            }
+        }
+
+        private void SelectAmount(int amount)
+        {
+            _selectedAmount = amount;
+            _lblTime.Text = _payment == "points"
+                ? FmtMinutes((int)(amount / 20.0 * 8))
+                : FmtMinutes(amount * 4);
+            _lblError.Text = "";
+        }
+
+        private async Task ConfirmAsync()
+        {
+            var userId = _controller.CurrentUserId;
+            if (string.IsNullOrEmpty(userId))
+            {
+                _lblError.Text = "No player signed in";
+                return;
+            }
+            if (_selectedAmount <= 0)
+            {
+                _lblError.Text = "Choose an amount first";
+                return;
+            }
+
+            _lblError.Text = "Adding time...";
+            try
+            {
+                using var resp = await _controller.Http.PostAsJsonAsync("api/sessions/add-time", new
+                {
+                    user_id = userId,
+                    station_name = _controller.StationName,
+                    payment = _payment,
+                    points = _payment == "points" ? _selectedAmount : (int?)null,
+                    gfunds = _payment == "gfunds" ? _selectedAmount : (int?)null
+                });
+                var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                if (json.TryGetProperty("error", out var err))
+                {
+                    _lblError.Text = err.GetString() ?? "Failed to add time";
+                    return;
+                }
+                DialogResult = DialogResult.OK;
+                Close();
+            }
+            catch
+            {
+                _lblError.Text = "Cannot reach the server";
+            }
         }
     }
 }

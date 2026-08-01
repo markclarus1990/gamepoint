@@ -54,6 +54,7 @@ export default function Admin() {
   const [showModal, setShowModal] = useState(false);
   const [showDeductModal, setShowDeductModal] = useState(false);
   const [deductAmount, setDeductAmount] = useState(0);
+  const [deductType, setDeductType] = useState<"points" | "gfunds">("points");
   const [loadGfunds, setLoadGfunds] = useState(0);
   const [loadPoints, setLoadPoints] = useState(0);
   const [stations, setStations] = useState<Station[]>([]);
@@ -137,15 +138,17 @@ const openHistory = (user: User) => {
   const deductPoints = async () => {
     if (!selectedUser || deductAmount <= 0) return;
 
-    await fetch("/api/deduct-points", {
+    const endpoint = deductType === "gfunds" ? "/api/deduct-gfunds" : "/api/deduct-points";
+    await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        name: selectedUser.name,
-        points: deductAmount,
-      }),
+      body: JSON.stringify(
+        deductType === "gfunds"
+          ? { name: selectedUser.name, gfunds: deductAmount }
+          : { name: selectedUser.name, points: deductAmount }
+      ),
     });
 
     setShowDeductModal(false);
@@ -209,6 +212,26 @@ const openHistory = (user: User) => {
     if (!confirm("Delete this station?")) return;
     await fetch(`/api/stations/${id}`, { method: "DELETE" });
     loadStations();
+  };
+
+  const sendStationCommand = async (
+    ids: string[],
+    command: "shutdown" | "restart",
+    target: string
+  ) => {
+    const verb = command === "restart" ? "restart" : "shut down";
+    if (!confirm(`${verb[0].toUpperCase()}${verb.slice(1)} ${target}?`)) return;
+
+    const res = await fetch("/api/stations/command", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ids, all: ids.length === 0, command }),
+    });
+
+    const data = await res.json();
+    alert(data.error || `${verb[0].toUpperCase()}${verb.slice(1)} command sent to ${target}.`);
   };
 
   const endStationSession = async (name: string) => {
@@ -556,16 +579,31 @@ const filteredSessions = sessions.filter((s) => {
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center">
           <div className="bg-gray-900 p-6 rounded-xl space-y-4 w-80">
             <h2 className="font-semibold">
-              Deduct Points - {selectedUser.name}
+              Deduct {deductType === "gfunds" ? "Gfunds" : "Points"} - {selectedUser.name}
             </h2>
 
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeductType("points")}
+                className={`flex-1 p-2 rounded text-sm ${deductType === "points" ? "bg-yellow-600" : "bg-gray-800"}`}
+              >
+                Points
+              </button>
+              <button
+                onClick={() => setDeductType("gfunds")}
+                className={`flex-1 p-2 rounded text-sm ${deductType === "gfunds" ? "bg-green-600" : "bg-gray-800"}`}
+              >
+                Gfunds
+              </button>
+            </div>
+
             <div className="text-sm text-gray-400">
-              Current points: {selectedUser.points || 0}
+              Current {deductType === "gfunds" ? "gfunds" : "points"}: {deductType === "gfunds" ? `₱${selectedUser.gfunds || 0}` : selectedUser.points || 0}
             </div>
 
             <input
               type="number"
-              placeholder="Enter points to deduct"
+              placeholder={deductType === "gfunds" ? "Enter gfunds amount (₱)" : "Enter points to deduct"}
               value={deductAmount}
               onChange={(e) => setDeductAmount(Number(e.target.value))}
               className="w-full p-2 bg-gray-800 rounded"
@@ -739,6 +777,20 @@ const filteredSessions = sessions.filter((s) => {
           >
             Add PC
           </button>
+          <button
+            onClick={() => sendStationCommand([], "restart", "all PCs")}
+            disabled={stations.length === 0}
+            className="bg-yellow-700 px-4 rounded disabled:opacity-40"
+          >
+            Restart All
+          </button>
+          <button
+            onClick={() => sendStationCommand([], "shutdown", "all PCs")}
+            disabled={stations.length === 0}
+            className="bg-red-800 px-4 rounded disabled:opacity-40"
+          >
+            Shutdown All
+          </button>
         </div>
 
         {stations.length === 0 ? (
@@ -806,6 +858,20 @@ const filteredSessions = sessions.filter((s) => {
                       End
                     </button>
                   )}
+
+                  <button
+                    onClick={() => sendStationCommand([s.id], "restart", s.name)}
+                    className="text-xs bg-yellow-700 px-2 py-1 rounded"
+                  >
+                    Restart
+                  </button>
+
+                  <button
+                    onClick={() => sendStationCommand([s.id], "shutdown", s.name)}
+                    className="text-xs bg-red-800 px-2 py-1 rounded"
+                  >
+                    Shutdown
+                  </button>
 
                   <button
                     onClick={() => deleteStation(s.id)}

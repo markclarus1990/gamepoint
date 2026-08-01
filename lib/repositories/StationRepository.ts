@@ -48,4 +48,29 @@ export class StationRepository {
   async remove(id: string): Promise<void> {
     await supabase.from("stations").delete().eq("id", id);
   }
+
+  async setCommand(
+    ids: string[],
+    command: string,
+    all = false
+  ): Promise<void> {
+    if (all) {
+      const { data } = await supabase.from("stations").select("id");
+      ids = (data ?? []).map((s) => s.id);
+      if (ids.length === 0) return;
+    }
+    const { error } = await supabase
+      .from("stations")
+      .update({ command, command_at: new Date().toISOString() })
+      .in("id", ids);
+    if (error) throw error;
+  }
+
+  async clearCommand(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("stations")
+      .update({ command: null, command_at: null })
+      .eq("id", id);
+    if (error) throw error;
+  }
 }

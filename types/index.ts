@@ -35,6 +35,8 @@ export interface Station {
   is_active: boolean;
   last_seen_at: string | null;
   created_at: string;
+  command?: string | null;
+  command_at?: string | null;
 }
 
 export interface RedeemRequest {
