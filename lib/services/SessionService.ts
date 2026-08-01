@@ -563,6 +563,8 @@ export class SessionService {
       online: boolean;
       active: Session | null;
       remaining_seconds: number;
+      screenshot_url: string | null;
+      screenshot_at: string | null;
     }[]
   > {
     await this.sessionRepo.expireOverdue();
@@ -598,6 +600,8 @@ export class SessionService {
           Date.now() - new Date(s.last_seen_at).getTime() < 90 * 1000,
         active,
         remaining_seconds: remaining,
+        screenshot_url: s.screenshot_url ?? null,
+        screenshot_at: s.screenshot_at ?? null,
       };
     });
   }

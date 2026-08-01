@@ -1,9 +1,30 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { Loader2 } from "lucide-react";
+import {
+  Loader2,
+  Monitor,
+  Power,
+  RotateCcw,
+  Camera,
+  KeyRound,
+  Trash2,
+  Plus,
+  Users,
+  ShoppingBag,
+  Gift,
+  History,
+  X,
+  Search,
+  Check,
+  Clock,
+  MessageCircle,
+  CircleDollarSign,
+  LogOut,
+  Download,
+} from "lucide-react";
 
 type User = {
-    id: string;
+  id: string;
   name: string;
   points: number;
   gfunds?: number;
@@ -22,9 +43,7 @@ type Redeem = {
   minutes: number;
   status: string;
   created_at: string;
-  users?: {
-    name: string;
-  };
+  users?: { name: string };
 };
 
 type ShopOrder = {
@@ -45,7 +64,15 @@ type Station = {
   online: boolean;
   active: { user_name: string; ends_at?: string } | null;
   remaining_seconds: number;
+  screenshot_url?: string | null;
+  screenshot_at?: string | null;
 };
+
+type Tab = "stations" | "requests" | "shop" | "users" | "history";
+
+const GRADIENT =
+  "bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500";
+
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -70,213 +97,208 @@ export default function Admin() {
   const [grantingId, setGrantingId] = useState<string | null>(null);
   const [shopGrantingId, setShopGrantingId] = useState<string | null>(null);
   const [authorized, setAuthorized] = useState(false);
+  const [tab, setTab] = useState<Tab>("stations");
+  const [viewStation, setViewStation] = useState<Station | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const notify = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  };
+
   useEffect(() => {
     const isAdmin = localStorage.getItem("isAdmin");
-
     if (isAdmin !== "true") {
       window.location.href = "/login";
     } else {
       setAuthorized(true);
     }
   }, []);
-  
-    // Load Users
+
   const loadUsers = async () => {
     const res = await fetch("/api/users");
     setUsers(await res.json());
   };
 
-const loadSessions = async (id: string) => {
-  const res = await fetch(`/api/sessions?id=${id}`);
-  const data = await res.json();
+  const loadSessions = async (id: string) => {
+    const res = await fetch(`/api/sessions?id=${id}`);
+    const data = await res.json();
+    setSessions(data.history || []);
+  };
 
-  setSessions(data.history || []);
-};
-//   Load Pending Request
-const loadPending = async () => {
-  const res = await fetch("/api/redeem/pending");
-  setPending(await res.json());
-};
+  const loadPending = async () => {
+    const res = await fetch("/api/redeem/pending");
+    setPending(await res.json());
+  };
 
-const loadShopOrders = async () => {
-  const res = await fetch("/api/products/purchases/pending");
-  setShopOrders(await res.json());
-};
+  const loadShopOrders = async () => {
+    const res = await fetch("/api/products/purchases/pending");
+    setShopOrders(await res.json());
+  };
 
-const loadStations = async () => {
-  const res = await fetch("/api/stations");
-  const data = await res.json();
-  setStations(data.stations || []);
-};
+  const loadStations = async () => {
+    const res = await fetch("/api/stations");
+    const data = await res.json();
+    setStations(data.stations || []);
+  };
 
-useEffect(() => {
-  loadPending();
-  loadShopOrders();
-  loadStations();
-
-  pollRef.current = setInterval(() => {
+  useEffect(() => {
     loadPending();
     loadShopOrders();
     loadStations();
-  }, 5000);
 
-  return () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-  };
-}, []);
+    pollRef.current = setInterval(() => {
+      loadPending();
+      loadShopOrders();
+      loadStations();
+    }, 5000);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     loadUsers();
   }, []);
 
-const openHistory = (user: User) => {
-  setSelectedUser(user);
-  loadSessions(user.id);
-};
+  const openHistory = (user: User) => {
+    setSelectedUser(user);
+    loadSessions(user.id);
+    setTab("history");
+  };
 
   const deductPoints = async () => {
     if (!selectedUser || deductAmount <= 0) return;
-
-    const endpoint = deductType === "gfunds" ? "/api/deduct-gfunds" : "/api/deduct-points";
-    await fetch(endpoint, {
+    const endpoint =
+      deductType === "gfunds" ? "/api/deduct-gfunds" : "/api/deduct-points";
+    const res = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
         deductType === "gfunds"
           ? { name: selectedUser.name, gfunds: deductAmount }
           : { name: selectedUser.name, points: deductAmount }
       ),
     });
-
+    const data = await res.json();
     setShowDeductModal(false);
     setDeductAmount(0);
     loadUsers();
     loadSessions(selectedUser.id);
+    notify(data.error || `Deducted from ${selectedUser.name}.`);
   };
 
   const loadAccount = async () => {
     if (!selectedUser || (loadGfunds <= 0 && loadPoints <= 0)) return;
-
     const res = await fetch("/api/admin/load", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: selectedUser.id,
         gfunds: loadGfunds,
         points: loadPoints,
       }),
     });
-
     const data = await res.json();
-
     if (data.error) {
-      alert(data.error);
+      notify(data.error);
       return;
     }
-
     setShowModal(false);
     setLoadGfunds(0);
     setLoadPoints(0);
     loadUsers();
+    notify(`Account loaded for ${selectedUser.name}.`);
   };
 
   const addStation = async () => {
     if (!newStationName.trim()) return;
-
     const res = await fetch("/api/stations", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newStationName.trim() }),
     });
-
     const data = await res.json();
-
     if (data.error) {
-      alert(data.error);
+      notify(data.error);
       return;
     }
-
     setNewStationName("");
     loadStations();
-    alert(`Station "${data.station.name}" added!\n\nAgent key: ${data.station.agent_key}\n\nPaste this key in the PC agent's config file.`);
+    notify(
+      `Station "${data.station.name}" added! Agent key copied: ${data.station.agent_key}`
+    );
+    copyKey(data.station.agent_key);
   };
 
-  const deleteStation = async (id: string) => {
-    if (!confirm("Delete this station?")) return;
+  const deleteStation = async (id: string, name: string) => {
+    if (!confirm(`Delete station ${name}?`)) return;
     await fetch(`/api/stations/${id}`, { method: "DELETE" });
     loadStations();
+    notify(`${name} deleted.`);
   };
 
   const sendStationCommand = async (
     ids: string[],
-    command: "shutdown" | "restart",
+    command: "shutdown" | "restart" | "screenshot",
     target: string
   ) => {
-    const verb = command === "restart" ? "restart" : "shut down";
-    if (!confirm(`${verb[0].toUpperCase()}${verb.slice(1)} ${target}?`)) return;
-
+    if (command === "shutdown" || command === "restart") {
+      const verb = command === "restart" ? "restart" : "shut down";
+      if (!confirm(`${verb[0].toUpperCase()}${verb.slice(1)} ${target}?`)) return;
+    }
+    setBusy(`${command}:${ids.join(",")}:${target}`);
     const res = await fetch("/api/stations/command", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids, all: ids.length === 0, command }),
     });
-
     const data = await res.json();
-    alert(data.error || `${verb[0].toUpperCase()}${verb.slice(1)} command sent to ${target}.`);
+    setBusy(null);
+    notify(data.error || `Command sent to ${target}.`);
   };
 
   const endStationSession = async (name: string) => {
     if (!confirm(`End the active session on ${name}? The PC will lock.`)) return;
     await fetch("/api/sessions/end", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ station_name: name }),
     });
     loadStations();
+    notify(`Session ended on ${name}.`);
   };
 
   const openStationTime = async () => {
     if (!openStation || openMinutes <= 0) return;
-
     const res = await fetch("/api/sessions/open", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         station_name: openStation.name,
         minutes: openMinutes,
       }),
     });
-
     const data = await res.json();
-
     if (data.error) {
-      alert(data.error);
+      notify(data.error);
       return;
     }
-
     setOpenStation(null);
     setOpenPesos(0);
     setOpenMinutes(0);
     loadStations();
+    notify(`${openMinutes} mins opened on ${openStation.name}.`);
   };
 
   const copyKey = async (key: string) => {
     try {
       await navigator.clipboard.writeText(key);
       setCopiedKey(key);
+      setTimeout(() => setCopiedKey(""), 1500);
     } catch {
       prompt("Copy the agent key:", key);
     }
@@ -286,342 +308,679 @@ const openHistory = (user: User) => {
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
     const s = secs % 60;
-    return h > 0
-      ? `${h}h ${m}m`
-      : `${m}m ${s}s`;
+    return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+  };
+
+  const timeAgo = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (secs < 5) return "just now";
+    if (secs < 60) return `${secs}s ago`;
+    return `${Math.floor(secs / 60)}m ago`;
   };
 
   const filteredUsers = users.filter((u) =>
     u.name.toLowerCase().includes(search.toLowerCase())
   );
-const filteredSessions = sessions.filter((s) => {
-  if (!fromDate && !toDate) return true;
 
-  const sessionDate = new Date(s.created_at);
+  const filteredSessions = sessions.filter((s) => {
+    if (!fromDate && !toDate) return true;
+    const sessionDate = new Date(s.created_at);
+    if (fromDate) {
+      const from = new Date(fromDate);
+      if (sessionDate < from) return false;
+    }
+    if (toDate) {
+      const to = new Date(toDate);
+      to.setHours(23, 59, 59, 999);
+      if (sessionDate > to) return false;
+    }
+    return true;
+  });
 
-  if (fromDate) {
-    const from = new Date(fromDate);
-    if (sessionDate < from) return false;
+  if (!authorized) {
+    return (
+      <div className="min-h-screen bg-[#0b1220] flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
+      </div>
+    );
   }
 
-  if (toDate) {
-    const to = new Date(toDate);
-    to.setHours(23, 59, 59, 999);
-    if (sessionDate > to) return false;
-  }
+  const onlineCount = stations.filter((s) => s.online).length;
+  const inSessionCount = stations.filter((s) => s.active).length;
 
-  return true;
-});
+  const stats = [
+    { label: "Stations Online", value: `${onlineCount}/${stations.length}`, icon: Monitor, color: "text-emerald-400 bg-emerald-500/10" },
+    { label: "In Session", value: String(inSessionCount), icon: Clock, color: "text-pink-400 bg-pink-500/10" },
+    { label: "Redeem Requests", value: String(pending.length), icon: Gift, color: "text-purple-400 bg-purple-500/10" },
+    { label: "Shop Orders", value: String(shopOrders.length), icon: ShoppingBag, color: "text-amber-400 bg-amber-500/10" },
+  ];
+
+  const tabs: { id: Tab; label: string; icon: typeof Monitor; badge?: number }[] = [
+    { id: "stations", label: "Stations", icon: Monitor },
+    { id: "requests", label: "Requests", icon: Gift, badge: pending.length },
+    { id: "shop", label: "Shop", icon: ShoppingBag, badge: shopOrders.length },
+    { id: "users", label: "Users", icon: Users },
+    { id: "history", label: "History", icon: History },
+  ];
 
   return (
-    <div className="min-h-screen bg-black text-white p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-bold text-white">Admin Dashboard</h1>
-        <button
-          onClick={() => (window.location.href = "/admin/chat")}
-          className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          Messages
-        </button>
-      </div>
-      <div className="flex gap-6">
-<div className="bg-gray-900 p-4 rounded-xl min-w-[280px]">
-  <h2 className="font-semibold mb-3">Redeem Requests</h2>
+    <div className="min-h-screen bg-[#0b1220] text-white">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-lg sm:text-xl font-black tracking-wide">
+              Admin <span className="text-pink-500">Dashboard</span>
+            </h1>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              {stations.length} stations • {onlineCount} online •{" "}
+              {new Date().toLocaleTimeString()}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => (window.location.href = "/admin/chat")}
+              className="flex items-center gap-1.5 bg-zinc-800/80 hover:bg-zinc-700/80 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Messages</span>
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem("user");
+                localStorage.removeItem("isAdmin");
+                window.location.href = "/login";
+              }}
+              className="flex items-center gap-1.5 bg-red-500/10 text-red-400 hover:bg-red-500/20 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
+        </div>
 
-  {pending.length === 0 ? (
-    <div className="text-gray-400">No pending requests</div>
-  ) : (
-   pending.map((r) => (
-  <div key={r.id} className="bg-gray-800 p-3 rounded-lg mb-2 flex justify-between items-center">
-    
-    <div>
-      <div className="font-semibold">
-        {r.users?.name || "Unknown"}
-      </div>
-
-      <div className="text-sm text-gray-400">
-        {r.points_used} pts • {r.minutes} mins
-      </div>
-    </div>
-
-    <button
-      onClick={async () => {
-        if (grantingId) return;
-        setGrantingId(r.id);
-        await fetch("/api/redeem/approve", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ request_id: r.id }),
-        });
-        setGrantingId(null);
-        loadPending();
-      }}
-      disabled={grantingId === r.id}
-      className="bg-green-600 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-60"
-    >
-      {grantingId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-      Grant
-    </button>
-
-  </div>
-))
-  )}
-</div>
-
-<div className="bg-gray-900 p-4 rounded-xl min-w-[280px]">
-  <h2 className="font-semibold mb-3">Shop Orders</h2>
-
-  {shopOrders.length === 0 ? (
-    <div className="text-gray-400">No pending orders</div>
-  ) : (
-   shopOrders.map((o) => (
-  <div key={o.id} className="bg-gray-800 p-3 rounded-lg mb-2 flex justify-between items-center">
-    
-    <div>
-      <div className="font-semibold">
-        {o.users?.name || "Unknown"}
-      </div>
-
-      <div className="text-sm text-gray-400">
-        {o.products?.name || "Unknown item"} • {o.points_spent} pts
-      </div>
-    </div>
-
-    <button
-      onClick={async () => {
-        if (shopGrantingId) return;
-        setShopGrantingId(o.id);
-        await fetch("/api/products/grant", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ order_id: o.id }),
-        });
-        setShopGrantingId(null);
-        loadShopOrders();
-      }}
-      disabled={shopGrantingId === o.id}
-      className="bg-green-600 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-60"
-    >
-      {shopGrantingId === o.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-      Grant
-    </button>
-
-  </div>
-))
-  )}
-</div>
-      {/* LEFT PANEL */}
-      <div className="w-1/2 space-y-4">
-
-        <input
-          placeholder="Search user..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full p-2 bg-gray-800 rounded"
-        />
-
-        <div className="bg-gray-900 p-4 rounded-xl space-y-2">
-          <h2 className="font-semibold">Users</h2>
-
-          {filteredUsers.map((u, i) => (
-            <div key={i} className="flex justify-between items-center bg-gray-800 p-2 rounded">
-
-              <div>
-              <div>{u.name}</div>
-              <div className="text-xs text-yellow-400">
-                ₱{u.gfunds || 0} • {u.points || 0} pts
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {stats.map((s) => (
+            <div
+              key={s.label}
+              className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-4 flex items-center gap-3"
+            >
+              <div className={`p-2.5 rounded-xl ${s.color}`}>
+                <s.icon className="w-5 h-5" />
               </div>
-            </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setSelectedUser(u);
-                    setShowModal(true);
-                  }}
-                  className="bg-green-600 px-2 py-1 rounded text-sm"
-                >
-                  Load
-                </button>
-
-                <button
-                  onClick={() => {
-                    setSelectedUser(u);
-                    setShowDeductModal(true);
-                  }}
-                  className="bg-red-600 px-2 py-1 rounded text-sm"
-                >
-                  Deduct
-                </button>
-
-                <button
-                  onClick={() => openHistory(u)}
-                  className="bg-blue-600 px-2 py-1 rounded text-sm"
-                >
-                  History
-                </button>
+              <div className="min-w-0">
+                <div className="text-xl font-black leading-tight">{s.value}</div>
+                <div className="text-[11px] text-zinc-500 truncate">
+                  {s.label}
+                </div>
               </div>
-
             </div>
           ))}
         </div>
-      </div>
 
-      {/* RIGHT PANEL */}
-    <div className="w-1/2 bg-gray-900 p-4 rounded-xl overflow-y-auto max-h-[80vh]">
-<div className="flex gap-2 mb-3">
+        {/* Tabs */}
+        <div className="sticky top-14 z-30 -mx-3 sm:mx-0 bg-[#0b1220]/95 backdrop-blur px-3 sm:px-0 pb-1">
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`flex items-center gap-1.5 shrink-0 px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
+                  tab === t.id
+                    ? `text-white ${GRADIENT} shadow-lg shadow-purple-900/40`
+                    : "bg-zinc-800/60 text-zinc-400 hover:text-white"
+                }`}
+              >
+                <t.icon className="w-4 h-4" />
+                {t.label}
+                {t.badge ? (
+                  <span
+                    className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                      tab === t.id ? "bg-white/20" : "bg-pink-500/20 text-pink-400"
+                    }`}
+                  >
+                    {t.badge}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
 
-  <input
-    type="date"
-    value={fromDate}
-    onChange={(e) => setFromDate(e.target.value)}
-    className="bg-gray-800 p-2 rounded text-sm"
-  />
-
-  <input
-    type="date"
-    value={toDate}
-    onChange={(e) => setToDate(e.target.value)}
-    className="bg-gray-800 p-2 rounded text-sm"
-  />
-
-  <button
-    onClick={() => {
-      const today = new Date().toISOString().split("T")[0];
-      setFromDate(today);
-      setToDate(today);
-    }}
-    className="bg-blue-600 px-3 rounded text-sm"
-  >
-    Today
-  </button>
-
-  <button
-    onClick={() => {
-      setFromDate("");
-      setToDate("");
-    }}
-    className="bg-gray-700 px-3 rounded text-sm"
-  >
-    Clear
-  </button>
-
-</div>
-  <h2 className="font-semibold mb-3">
-    {selectedUser ? `${selectedUser.name} History` : "Select a user"}
-  </h2>
-
-  {!selectedUser ? (
-    <div className="text-gray-400">No user selected</div>
-  ) : sessions.length === 0 ? (
-    <div className="text-gray-400">No history</div>
-  ) : (
-    (() => {
-      // ✅ group sessions by date
-      const groups: Record<string, typeof sessions> = {};
-
-      filteredSessions.forEach((s) => {
-        const date = new Date(s.created_at).toDateString();
-        if (!groups[date]) groups[date] = [];
-        groups[date].push(s);
-      });
-
-      return Object.entries(groups).map(([date, items]) => {
-        const today = new Date().toDateString();
-        const label = date === today ? "Today" : date;
-
-        const totalMinutes = items.reduce((sum, s) => sum + s.minutes, 0);
-        const totalAmount = items.reduce((sum, s) => sum + s.amount, 0);
-
-        return (
-          <div key={date} className="mb-4">
-
-            {/* DATE HEADER */}
-            <div className="text-sm text-gray-400 mb-2">
-              {label}
+        {/* ============ STATIONS TAB ============ */}
+        {tab === "stations" && (
+          <div className="space-y-4">
+            <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-4">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex flex-1 gap-2">
+                  <input
+                    placeholder="PC name (e.g. PC-1)"
+                    value={newStationName}
+                    onChange={(e) => setNewStationName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addStation()}
+                    className="flex-1 px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-purple-500/60"
+                  />
+                  <button
+                    onClick={addStation}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add PC
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => sendStationCommand([], "restart", "all PCs")}
+                    disabled={stations.length === 0}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span className="hidden sm:inline">Restart All</span>
+                  </button>
+                  <button
+                    onClick={() => sendStationCommand([], "shutdown", "all PCs")}
+                    disabled={stations.length === 0}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-40 transition-colors"
+                  >
+                    <Power className="w-4 h-4" />
+                    <span className="hidden sm:inline">Shutdown All</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* SESSIONS */}
-            <div className="space-y-2">
-              {items.map((s, i) => (
-                <div
-                  key={i}
-                  className="flex justify-between items-center bg-gray-800 p-2 rounded"
-                >
-                  <div>
-                    <div className="text-sm">
-                      ₱{s.amount} • {s.minutes} mins
+            {stations.length === 0 ? (
+              <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-10 text-center text-sm text-zinc-500">
+                No stations yet. Add a PC above, then install the agent on it.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {stations.map((s) => (
+                  <div
+                    key={s.id}
+                    className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-4 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className={`relative flex w-2.5 h-2.5 shrink-0 ${
+                            s.active
+                              ? "bg-emerald-400"
+                              : s.online
+                                ? "bg-amber-400"
+                                : "bg-zinc-600"
+                          } rounded-full`}
+                        >
+                          {(s.active || s.online) && (
+                            <span
+                              className={`absolute inline-flex w-full h-full ${s.active ? "bg-emerald-400" : "bg-amber-400"} rounded-full opacity-60 animate-ping`}
+                            />
+                          )}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-bold truncate">{s.name}</div>
+                          <div className="text-[11px] text-zinc-500">
+                            {s.active ? (
+                              <span className="text-emerald-400">
+                                {s.active.user_name} •{" "}
+                                {formatRemaining(s.remaining_seconds)} left
+                              </span>
+                            ) : s.online ? (
+                              <span className="text-amber-400">Online</span>
+                            ) : (
+                              <span className="text-zinc-500">Offline</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => copyKey(s.agent_key)}
+                        title="Copy agent key"
+                        className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-zinc-800/70 hover:bg-zinc-700/70 text-zinc-400 transition-colors"
+                      >
+                        {copiedKey === s.agent_key ? (
+                          <Check className="w-3 h-3 text-emerald-400" />
+                        ) : (
+                          <KeyRound className="w-3 h-3" />
+                        )}
+                        {copiedKey === s.agent_key ? "Copied" : "Key"}
+                      </button>
                     </div>
-                    <div className="text-xs text-gray-400">
-                      {new Date(s.created_at).toLocaleTimeString()}
+
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        onClick={() => setViewStation(s)}
+                        disabled={!s.online}
+                        title="View screen"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 disabled:opacity-40 transition-all"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        View
+                      </button>
+
+                      {!s.active ? (
+                        <button
+                          onClick={() => {
+                            setOpenStation(s);
+                            setOpenPesos(0);
+                            setOpenMinutes(0);
+                          }}
+                          disabled={!s.online}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 transition-colors"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          Open Time
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => endStationSession(s.name)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                          End
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() =>
+                          sendStationCommand([s.id], "restart", s.name)
+                        }
+                        disabled={
+                          busy === `restart:${s.id}:${s.name}` || !s.online
+                        }
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
+                      >
+                        {busy === `restart:${s.id}:${s.name}` ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        )}
+                        Restart
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          sendStationCommand([s.id], "shutdown", s.name)
+                        }
+                        disabled={
+                          busy === `shutdown:${s.id}:${s.name}` || !s.online
+                        }
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-40 transition-colors"
+                      >
+                        {busy === `shutdown:${s.id}:${s.name}` ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Power className="w-3.5 h-3.5" />
+                        )}
+                        Shutdown
+                      </button>
+
+                      <button
+                        onClick={() => deleteStation(s.id, s.name)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-800/70 text-zinc-400 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============ REQUESTS TAB ============ */}
+        {tab === "requests" && (
+          <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-4 sm:p-5">
+            <h2 className="font-bold mb-3 flex items-center gap-2">
+              <Gift className="w-4 h-4 text-pink-500" /> Redeem Requests
+            </h2>
+            {pending.length === 0 ? (
+              <div className="text-sm text-zinc-500 py-6 text-center">
+                No pending requests
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {pending.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between gap-3 bg-zinc-900/50 border border-white/5 p-3 rounded-xl"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">
+                        {r.users?.name || "Unknown"}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {r.points_used} pts • {r.minutes} mins •{" "}
+                        {timeAgo(r.created_at)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (grantingId) return;
+                        setGrantingId(r.id);
+                        await fetch("/api/redeem/approve", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ request_id: r.id }),
+                        });
+                        setGrantingId(null);
+                        loadPending();
+                      }}
+                      disabled={grantingId === r.id}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 transition-all"
+                    >
+                      {grantingId === r.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      Grant
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============ SHOP TAB ============ */}
+        {tab === "shop" && (
+          <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-4 sm:p-5">
+            <h2 className="font-bold mb-3 flex items-center gap-2">
+              <ShoppingBag className="w-4 h-4 text-pink-500" /> Shop Orders
+            </h2>
+            {shopOrders.length === 0 ? (
+              <div className="text-sm text-zinc-500 py-6 text-center">
+                No pending orders
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {shopOrders.map((o) => (
+                  <div
+                    key={o.id}
+                    className="flex items-center justify-between gap-3 bg-zinc-900/50 border border-white/5 p-3 rounded-xl"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">
+                        {o.users?.name || "Unknown"}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {o.products?.name || "Unknown item"} • {o.points_spent}{" "}
+                        pts • {timeAgo(o.created_at)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (shopGrantingId) return;
+                        setShopGrantingId(o.id);
+                        await fetch("/api/products/grant", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ order_id: o.id }),
+                        });
+                        setShopGrantingId(null);
+                        loadShopOrders();
+                      }}
+                      disabled={shopGrantingId === o.id}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 transition-all"
+                    >
+                      {shopGrantingId === o.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      Grant
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============ USERS TAB ============ */}
+        {tab === "users" && (
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <input
+                placeholder="Search user..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-[#0f1b2e] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-purple-500/60"
+              />
+            </div>
+            <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl divide-y divide-white/5">
+              {filteredUsers.length === 0 ? (
+                <div className="text-sm text-zinc-500 py-8 text-center">
+                  No users found
                 </div>
+              ) : (
+                filteredUsers.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex flex-wrap items-center justify-between gap-2 p-3.5"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{u.name}</div>
+                      <div className="text-xs text-amber-400">
+                        ₱{u.gfunds || 0} • {u.points || 0} pts
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => {
+                          setSelectedUser(u);
+                          setShowModal(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedUser(u);
+                          setShowDeductModal(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                      >
+                        Deduct
+                      </button>
+                      <button
+                        onClick={() => openHistory(u)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors"
+                      >
+                        History
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ============ HISTORY TAB ============ */}
+        {tab === "history" && (
+          <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-4 sm:p-5">
+            <div className="flex flex-wrap gap-2 mb-4">
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="px-3 py-2 bg-[#1e293b] border border-white/5 rounded-xl text-sm [color-scheme:dark]"
+              />
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="px-3 py-2 bg-[#1e293b] border border-white/5 rounded-xl text-sm [color-scheme:dark]"
+              />
+              <button
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  setFromDate(today);
+                  setToDate(today);
+                }}
+                className="px-3 py-2 rounded-xl text-sm font-medium bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
+                className="px-3 py-2 rounded-xl text-sm font-medium bg-zinc-800/70 text-zinc-400 hover:bg-zinc-700/70 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+
+            <h2 className="font-bold mb-3 flex items-center gap-2">
+              <History className="w-4 h-4 text-pink-500" />
+              {selectedUser
+                ? `${selectedUser.name} History`
+                : "Select a user"}
+            </h2>
+
+            {!selectedUser ? (
+              <div className="text-sm text-zinc-500 py-8 text-center">
+                No user selected. Pick one from the Users tab.
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="text-sm text-zinc-500 py-8 text-center">
+                No history for this user.
+              </div>
+            ) : (
+              (() => {
+                const groups: Record<string, typeof sessions> = {};
+                filteredSessions.forEach((s) => {
+                  const date = new Date(s.created_at).toDateString();
+                  if (!groups[date]) groups[date] = [];
+                  groups[date].push(s);
+                });
+
+                if (Object.keys(groups).length === 0) {
+                  return (
+                    <div className="text-sm text-zinc-500 py-8 text-center">
+                      No sessions in this date range.
+                    </div>
+                  );
+                }
+
+                return Object.entries(groups).map(([date, items]) => {
+                  const today = new Date().toDateString();
+                  const label = date === today ? "Today" : date;
+                  const totalMinutes = items.reduce((sum, s) => sum + s.minutes, 0);
+                  const totalAmount = items.reduce((sum, s) => sum + s.amount, 0);
+                  return (
+                    <div key={date} className="mb-4">
+                      <div className="text-xs text-zinc-500 mb-2">
+                        {label}
+                      </div>
+                      <div className="space-y-1.5">
+                        {items.map((s, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center justify-between bg-zinc-900/50 border border-white/5 px-3 py-2.5 rounded-xl"
+                          >
+                            <div className="text-sm font-medium">
+                              ₱{s.amount} • {s.minutes} mins
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              {new Date(s.created_at).toLocaleTimeString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-xs text-purple-400 mt-2 flex justify-between font-medium">
+                        <span>Total: {totalMinutes} mins</span>
+                        <span>₱{totalAmount}</span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ============ DEDUCT MODAL ============ */}
+      {showDeductModal && selectedUser && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+          <div className="w-full sm:max-w-md bg-[#0f1b2e] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-lg">
+                Deduct{" "}
+                {deductType === "gfunds" ? "Gfunds" : "Points"} —{" "}
+                <span className="text-pink-500">{selectedUser.name}</span>
+              </h2>
+              <button
+                onClick={() => setShowDeductModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex gap-2 bg-zinc-900/60 p-1 rounded-xl">
+              {(["points", "gfunds"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setDeductType(t)}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    deductType === t
+                      ? t === "points"
+                        ? "bg-amber-500/20 text-amber-400"
+                        : "bg-emerald-500/20 text-emerald-400"
+                      : "text-zinc-500"
+                  }`}
+                >
+                  {t === "points" ? "Points" : "Gfunds"}
+                </button>
               ))}
             </div>
 
-            {/* TOTAL */}
-            <div className="text-xs text-purple-400 mt-2 flex justify-between">
-              <span>Total: {totalMinutes} mins</span>
-              <span>₱{totalAmount}</span>
-            </div>
-
-          </div>
-        );
-      });
-    })()
-  )}
-
-</div>
-
-      {/* DEDUCT MODAL */}
-      {showDeductModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center">
-          <div className="bg-gray-900 p-6 rounded-xl space-y-4 w-80">
-            <h2 className="font-semibold">
-              Deduct {deductType === "gfunds" ? "Gfunds" : "Points"} - {selectedUser.name}
-            </h2>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setDeductType("points")}
-                className={`flex-1 p-2 rounded text-sm ${deductType === "points" ? "bg-yellow-600" : "bg-gray-800"}`}
-              >
-                Points
-              </button>
-              <button
-                onClick={() => setDeductType("gfunds")}
-                className={`flex-1 p-2 rounded text-sm ${deductType === "gfunds" ? "bg-green-600" : "bg-gray-800"}`}
-              >
-                Gfunds
-              </button>
-            </div>
-
-            <div className="text-sm text-gray-400">
-              Current {deductType === "gfunds" ? "gfunds" : "points"}: {deductType === "gfunds" ? `₱${selectedUser.gfunds || 0}` : selectedUser.points || 0}
+            <div className="text-sm text-zinc-400">
+              Current {deductType === "gfunds" ? "gfunds" : "points"}:{" "}
+              <span className="font-semibold text-white">
+                {deductType === "gfunds"
+                  ? `₱${selectedUser.gfunds || 0}`
+                  : selectedUser.points || 0}
+              </span>
             </div>
 
             <input
               type="number"
-              placeholder={deductType === "gfunds" ? "Enter gfunds amount (₱)" : "Enter points to deduct"}
+              min={1}
+              placeholder={
+                deductType === "gfunds"
+                  ? "Enter gfunds amount (₱)"
+                  : "Enter points to deduct"
+              }
               value={deductAmount}
               onChange={(e) => setDeductAmount(Number(e.target.value))}
-              className="w-full p-2 bg-gray-800 rounded"
+              className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-red-500/60"
             />
 
             <button
               onClick={deductPoints}
-              className="w-full bg-red-600 p-2 rounded"
+              disabled={deductAmount <= 0}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-40 transition-colors"
             >
               Confirm Deduct
             </button>
-
             <button
               onClick={() => {
                 setShowDeductModal(false);
                 setDeductAmount(0);
               }}
-              className="w-full text-gray-400"
+              className="w-full py-2 text-sm text-zinc-400 hover:text-white"
             >
               Cancel
             </button>
@@ -629,18 +988,26 @@ const filteredSessions = sessions.filter((s) => {
         </div>
       )}
 
-      {/* MODAL */}
+      {/* ============ LOAD MODAL ============ */}
       {showModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+          <div className="w-full sm:max-w-md bg-[#0f1b2e] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-lg">
+                Load Account —{" "}
+                <span className="text-pink-500">{selectedUser.name}</span>
+              </h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-          <div className="bg-gray-900 p-6 rounded-xl space-y-4 w-80">
-
-            <h2 className="font-semibold">
-              Load Account - {selectedUser.name}
-            </h2>
-
-            <div className="text-sm text-gray-400">
-              Current: ₱{selectedUser.gfunds || 0} gfunds • {selectedUser.points || 0} pts
+            <div className="text-sm text-zinc-400">
+              Current: ₱{selectedUser.gfunds || 0} gfunds •{" "}
+              {selectedUser.points || 0} pts
             </div>
 
             <div>
@@ -649,11 +1016,9 @@ const filteredSessions = sessions.filter((s) => {
                 placeholder="Gfunds (pesos)"
                 value={loadGfunds}
                 onChange={(e) => setLoadGfunds(Number(e.target.value))}
-                className="w-full p-2 bg-gray-800 rounded"
+                className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
-              <div className="text-xs text-gray-400 mt-1">
-                1₱ = 4 mins of gfunds time
-              </div>
+              <div className="text-xs text-zinc-500 mt-1">1₱ = 4 mins of gfunds time</div>
             </div>
 
             <div>
@@ -662,44 +1027,49 @@ const filteredSessions = sessions.filter((s) => {
                 placeholder="Bonus gamepoints"
                 value={loadPoints}
                 onChange={(e) => setLoadPoints(Number(e.target.value))}
-                className="w-full p-2 bg-gray-800 rounded"
+                className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
-              <div className="text-xs text-gray-400 mt-1">
-                20 pts = 8 mins of game time
-              </div>
+              <div className="text-xs text-zinc-500 mt-1">20 pts = 8 mins of game time</div>
             </div>
 
             <button
               onClick={loadAccount}
-              className="w-full bg-green-600 p-2 rounded"
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 transition-all"
             >
               Load
             </button>
-
             <button
               onClick={() => {
                 setShowModal(false);
                 setLoadGfunds(0);
                 setLoadPoints(0);
               }}
-              className="w-full text-gray-400"
+              className="w-full py-2 text-sm text-zinc-400 hover:text-white"
             >
               Cancel
             </button>
-
           </div>
-
         </div>
       )}
 
-      {/* OPEN TIME MODAL */}
+      {/* ============ OPEN TIME MODAL ============ */}
       {openStation && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center">
-          <div className="bg-gray-900 p-6 rounded-xl space-y-4 w-80">
-            <h2 className="font-semibold">Open Time - {openStation.name}</h2>
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+          <div className="w-full sm:max-w-md bg-[#0f1b2e] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-lg">
+                Open Time — <span className="text-pink-500">{openStation.name}</span>
+              </h2>
+              <button
+                onClick={() => setOpenStation(null)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
             <div>
-              <div className="text-sm text-gray-400 mb-1">Amount paid (₱)</div>
+              <div className="text-sm text-zinc-400 mb-1">Amount paid (₱)</div>
               <input
                 type="number"
                 value={openPesos}
@@ -708,22 +1078,22 @@ const filteredSessions = sessions.filter((s) => {
                   setOpenPesos(p);
                   setOpenMinutes(p * 4);
                 }}
-                className="w-full p-2 bg-gray-800 rounded"
+                className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
                 placeholder="0"
               />
             </div>
 
             <div>
-              <div className="text-sm text-gray-400 mb-1">Minutes</div>
+              <div className="text-sm text-zinc-400 mb-1">Minutes</div>
               <input
                 type="number"
                 value={openMinutes}
                 onChange={(e) => setOpenMinutes(Number(e.target.value))}
-                className="w-full p-2 bg-gray-800 rounded"
+                className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
             </div>
 
-            <div className="flex gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {[15, 30, 60, 120].map((m) => (
                 <button
                   key={m}
@@ -731,7 +1101,11 @@ const filteredSessions = sessions.filter((s) => {
                     setOpenMinutes(m);
                     setOpenPesos(m / 4);
                   }}
-                  className="flex-1 bg-gray-700 px-2 py-1 rounded text-xs"
+                  className={`py-2 rounded-xl text-xs font-medium transition-colors ${
+                    openMinutes === m
+                      ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white"
+                      : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                  }`}
                 >
                   {m}m
                 </button>
@@ -741,18 +1115,17 @@ const filteredSessions = sessions.filter((s) => {
             <button
               onClick={openStationTime}
               disabled={openMinutes <= 0}
-              className="w-full bg-green-600 p-2 rounded disabled:opacity-40"
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 transition-all"
             >
               Open {openMinutes > 0 ? `${openMinutes} mins` : "Time"}
             </button>
-
             <button
               onClick={() => {
                 setOpenStation(null);
                 setOpenPesos(0);
                 setOpenMinutes(0);
               }}
-              className="w-full text-gray-400"
+              className="w-full py-2 text-sm text-zinc-400 hover:text-white"
             >
               Cancel
             </button>
@@ -760,133 +1133,173 @@ const filteredSessions = sessions.filter((s) => {
         </div>
       )}
 
-      {/* STATIONS PANEL */}
-      <div className="mt-6 bg-gray-900 p-4 rounded-xl">
-        <h2 className="font-semibold mb-3">Stations (PCs)</h2>
+      {/* ============ SCREENSHOT MODAL ============ */}
+      {viewStation && (
+        <ScreenshotModal
+          station={viewStation}
+          stations={stations}
+          onClose={() => setViewStation(null)}
+        />
+      )}
 
-        <div className="flex gap-2 mb-4">
-          <input
-            placeholder="PC name (e.g. PC-1)"
-            value={newStationName}
-            onChange={(e) => setNewStationName(e.target.value)}
-            className="flex-1 p-2 bg-gray-800 rounded"
-          />
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl bg-zinc-900 border border-white/10 text-sm font-medium shadow-2xl shadow-black/50 max-w-[90vw]">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============ SCREENSHOT MODAL ============ */
+function ScreenshotModal({
+  station,
+  stations,
+  onClose,
+}: {
+  station: Station;
+  stations: Station[];
+  onClose: () => void;
+}) {
+  const [requesting, setRequesting] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const live = stations.find((s) => s.id === station.id) ?? station;
+  const imgUrl = live.screenshot_url;
+  const shotAt = live.screenshot_at;
+  const age = shotAt ? Math.floor((Date.now() - new Date(shotAt).getTime()) / 1000) : null;
+  const fresh = age !== null && age <= 30;
+
+  useEffect(() => {
+    let alive = true;
+
+    const requestShot = async () => {
+      if (!alive) return;
+      try {
+        const res = await fetch("/api/stations/command", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [station.id], command: "screenshot" }),
+        });
+        const data = await res.json();
+        if (data.error) setError(data.error);
+      } catch {
+        /* keep polling */
+      }
+    };
+
+    requestShot();
+    const iv = setInterval(requestShot, 8000);
+    const timeout = setTimeout(() => setRequesting(false), 4000);
+
+    return () => {
+      alive = false;
+      clearInterval(iv);
+      clearTimeout(timeout);
+    };
+  }, [station.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center">
+      <div className="w-full sm:max-w-3xl bg-[#0f1b2e] border border-white/10 rounded-t-3xl sm:rounded-2xl overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-white/5">
+          <div className="flex items-center gap-3 min-w-0">
+            <span
+              className={`relative flex w-2.5 h-2.5 shrink-0 ${
+                live.active
+                  ? "bg-emerald-400"
+                  : live.online
+                    ? "bg-amber-400"
+                    : "bg-zinc-600"
+              } rounded-full`}
+            />
+            <div className="min-w-0">
+              <div className="font-bold truncate">{live.name}</div>
+              <div className="text-[11px] text-zinc-500">
+                {live.active
+                  ? `${live.active.user_name} • ${formatRemainingShort(live.remaining_seconds)} left`
+                  : live.online
+                    ? "Online"
+                    : "Offline"}
+              </div>
+            </div>
+            {fresh && (
+              <span className="hidden sm:flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                Live
+              </span>
+            )}
+          </div>
           <button
-            onClick={addStation}
-            className="bg-purple-600 px-4 rounded"
+            onClick={onClose}
+            className="p-2 rounded-lg text-zinc-400 hover:bg-zinc-800 transition-colors"
           >
-            Add PC
-          </button>
-          <button
-            onClick={() => sendStationCommand([], "restart", "all PCs")}
-            disabled={stations.length === 0}
-            className="bg-yellow-700 px-4 rounded disabled:opacity-40"
-          >
-            Restart All
-          </button>
-          <button
-            onClick={() => sendStationCommand([], "shutdown", "all PCs")}
-            disabled={stations.length === 0}
-            className="bg-red-800 px-4 rounded disabled:opacity-40"
-          >
-            Shutdown All
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {stations.length === 0 ? (
-          <div className="text-gray-400 text-sm">
-            No stations yet. Add a PC above, then install the agent on it.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {stations.map((s) => (
-              <div
-                key={s.id}
-                className="flex justify-between items-center bg-gray-800 p-3 rounded"
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full ${
-                      s.active
-                        ? "bg-green-500"
-                        : s.online
-                          ? "bg-yellow-400"
-                          : "bg-gray-600"
-                    }`}
-                  />
-                  <div>
-                    <div className="font-semibold">{s.name}</div>
-                    {s.active ? (
-                      <div className="text-xs text-green-400">
-                        {s.active.user_name} • {formatRemaining(s.remaining_seconds)} left
-                      </div>
-                    ) : (
-                      <div className="text-xs text-gray-400">
-                        {s.online ? "Online" : "Offline"}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => copyKey(s.agent_key)}
-                    className="text-xs bg-gray-700 px-2 py-1 rounded"
-                    title="Copy agent key"
-                  >
-                    {copiedKey === s.agent_key ? "Copied!" : "Key"}
-                  </button>
-
-                  {!s.active && (
-                    <button
-                      onClick={() => {
-                        setOpenStation(s);
-                        setOpenPesos(0);
-                        setOpenMinutes(0);
-                      }}
-                      className="text-xs bg-green-600 px-2 py-1 rounded"
-                    >
-                      Open Time
-                    </button>
-                  )}
-
-                  {s.active && (
-                    <button
-                      onClick={() => endStationSession(s.name)}
-                      className="text-xs bg-red-600 px-2 py-1 rounded"
-                    >
-                      End
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => sendStationCommand([s.id], "restart", s.name)}
-                    className="text-xs bg-yellow-700 px-2 py-1 rounded"
-                  >
-                    Restart
-                  </button>
-
-                  <button
-                    onClick={() => sendStationCommand([s.id], "shutdown", s.name)}
-                    className="text-xs bg-red-800 px-2 py-1 rounded"
-                  >
-                    Shutdown
-                  </button>
-
-                  <button
-                    onClick={() => deleteStation(s.id)}
-                    className="text-xs bg-gray-700 px-2 py-1 rounded"
-                  >
-                    Delete
-                  </button>
-                </div>
+        <div className="relative bg-black/40 min-h-[240px] flex-1 flex items-center justify-center overflow-hidden">
+          {!imgUrl ? (
+            <div className="text-center space-y-3 py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-pink-500 mx-auto" />
+              <div className="text-sm text-zinc-400">
+                {live.online
+                  ? requesting
+                    ? "Requesting screen capture…"
+                    : "No capture yet — waiting for the station to respond…"
+                  : "Station is offline — no capture possible."}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              {error && <div className="text-xs text-red-400">{error}</div>}
+            </div>
+          ) : (
+            <img
+              src={`${imgUrl}?t=${encodeURIComponent(shotAt || Date.now())}`}
+              alt={`${live.name} screen`}
+              className="w-full h-auto max-h-[70vh] object-contain"
+            />
+          )}
+        </div>
 
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 border-t border-white/5">
+          <div className="text-[11px] text-zinc-500 flex items-center gap-1.5">
+            <Camera className="w-3.5 h-3.5" />
+            {shotAt ? `Captured ${formatAge(age)}` : "Waiting for capture"}
+            <span
+              className={`ml-1 flex items-center gap-1 ${
+                fresh ? "text-emerald-400" : "text-zinc-500"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${fresh ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`}
+              />
+              {fresh ? "refreshing every ~8s" : "refreshing…"}
+            </span>
+          </div>
+          {imgUrl && (
+            <a
+              href={`${imgUrl}?t=${encodeURIComponent(shotAt || Date.now())}`}
+              download={`${live.name}-screen.jpg`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800/70 hover:bg-zinc-700/70 text-zinc-300 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Save
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function formatRemainingShort(secs: number) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function formatAge(age: number | null) {
+  if (age === null) return "…";
+  if (age < 5) return "just now";
+  if (age < 60) return `${age}s ago`;
+  return `${Math.floor(age / 60)}m ago`;
 }

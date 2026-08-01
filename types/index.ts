@@ -37,6 +37,8 @@ export interface Station {
   created_at: string;
   command?: string | null;
   command_at?: string | null;
+  screenshot_url?: string | null;
+  screenshot_at?: string | null;
 }
 
 export interface RedeemRequest {

@@ -38,3 +38,11 @@ body {
 .animate-scroll-up {
   animation: scroll-up 20s linear infinite;
 }
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

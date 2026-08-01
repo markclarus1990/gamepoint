@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -390,8 +391,16 @@ internal static class Program
                 ApplyStatus(st);
                 if (!string.IsNullOrEmpty(st.PendingCommand))
                 {
-                    await AckCommandAsync();
-                    ExecuteCommand(st.PendingCommand);
+                    if (st.PendingCommand == "screenshot")
+                    {
+                        await CaptureAndUploadScreenshotAsync();
+                        await AckCommandAsync();
+                    }
+                    else
+                    {
+                        await AckCommandAsync();
+                        ExecuteCommand(st.PendingCommand);
+                    }
                 }
             }
             catch
@@ -422,6 +431,21 @@ internal static class Program
         private void ExecuteCommand(string command)
         {
             if (command != "shutdown" && command != "restart") return;
+            Dbg($"Executing command: {command}");
+            try
+            {
+                var psi = new ProcessStartInfo("shutdown", command == "restart" ? "/r /t 20" : "/s /t 20")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                Process.Start(psi);
+                Dbg($"Command {command} scheduled (20s).");
+            }
+            catch (Exception ex)
+            {
+                Dbg($"Command {command} failed: {ex.Message}");
+            }
             try
             {
                 MessageBox.Show(
@@ -435,19 +459,54 @@ internal static class Program
             catch
             {
             }
+        }
+
+        private async Task CaptureAndUploadScreenshotAsync()
+        {
             try
             {
-                var psi = new ProcessStartInfo("shutdown", command == "restart" ? "/r /t 20" : "/s /t 20")
+                var bounds = SystemInformation.VirtualScreen;
+                using var bmp = new Bitmap(bounds.Width, bounds.Height);
+                using (var g = Graphics.FromImage(bmp))
                 {
-                    CreateNoWindow = true,
-                    UseShellExecute = false
+                    g.CopyFromScreen(bounds.X, bounds.Y, 0, 0, bounds.Size);
+                }
+
+                using var scaled = Downscale(bmp, 1280);
+                using var ms = new MemoryStream();
+                var jpeg = ImageCodecInfo.GetImageEncoders()
+                    .First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+                var enc = new EncoderParameters(1);
+                enc.Param[0] = new EncoderParameter(Encoder.Quality, 55L);
+                scaled.Save(ms, jpeg, enc);
+
+                using var req = new HttpRequestMessage(HttpMethod.Post, "api/agent/screenshot")
+                {
+                    Content = JsonContent.Create(new { image = Convert.ToBase64String(ms.ToArray()) })
                 };
-                Process.Start(psi);
+                req.Headers.Add("x-agent-key", _cfg.AgentKey);
+                using var resp = await _http.SendAsync(req);
+                Dbg($"Screenshot uploaded: {(int)resp.StatusCode}");
             }
-            catch
+            catch (Exception ex)
             {
-                // command failed — nothing else we can do
+                Dbg($"Screenshot failed: {ex.Message}");
             }
+        }
+
+        private static Bitmap Downscale(Bitmap src, int maxWidth)
+        {
+            if (src.Width <= maxWidth) return (Bitmap)src.Clone();
+            var scale = (double)maxWidth / src.Width;
+            var w = maxWidth;
+            var h = Math.Max(1, (int)(src.Height * scale));
+            var bmp = new Bitmap(w, h);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.DrawImage(src, 0, 0, w, h);
+            }
+            return bmp;
         }
 
         public void UnlockSession(int remainingSeconds, string userName)

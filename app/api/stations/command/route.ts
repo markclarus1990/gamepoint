@@ -5,7 +5,7 @@ const stationRepo = new StationRepository();
 export async function POST(req: Request) {
   const { ids, all, command } = await req.json();
 
-  if (command !== "shutdown" && command !== "restart") {
+  if (command !== "shutdown" && command !== "restart" && command !== "screenshot") {
     return Response.json({ error: "Invalid command" }, { status: 400 });
   }
 

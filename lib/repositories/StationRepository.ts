@@ -73,4 +73,12 @@ export class StationRepository {
       .eq("id", id);
     if (error) throw error;
   }
+
+  async saveScreenshot(id: string, url: string): Promise<void> {
+    const { error } = await supabase
+      .from("stations")
+      .update({ screenshot_url: url, screenshot_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+  }
 }
