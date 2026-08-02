@@ -6,6 +6,7 @@ export interface User {
   reserved_points: number;
   gfunds: number;
   avatar_url: string | null;
+  time_credit_minutes?: number;
   is_admin?: boolean;
   created_at?: string;
 }

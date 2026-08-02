@@ -21,6 +21,7 @@ import {
   CircleDollarSign,
   LogOut,
   Download,
+  Share2,
 } from "lucide-react";
 
 type User = {
@@ -28,6 +29,7 @@ type User = {
   name: string;
   points: number;
   gfunds?: number;
+  time_credit_minutes?: number;
 };
 
 type Session = {
@@ -100,6 +102,7 @@ export default function Admin() {
   const [authorized, setAuthorized] = useState(false);
   const [tab, setTab] = useState<Tab>("stations");
   const [viewStation, setViewStation] = useState<Station | null>(null);
+  const [shareStation, setShareStation] = useState<Station | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -586,13 +589,22 @@ export default function Admin() {
                           Open Time
                         </button>
                       ) : (
-                        <button
-                          onClick={() => endStationSession(s.name)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
-                        >
-                          <Power className="w-3.5 h-3.5" />
-                          End
-                        </button>
+                        <>
+                          <button
+                            onClick={() => setShareStation(s)}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 transition-colors"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            Share
+                          </button>
+                          <button
+                            onClick={() => endStationSession(s.name)}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                          >
+                            <Power className="w-3.5 h-3.5" />
+                            End
+                          </button>
+                        </>
                       )}
 
                       <button
@@ -780,6 +792,12 @@ export default function Admin() {
                       <div className="font-semibold truncate">{u.name}</div>
                       <div className="text-xs text-amber-400">
                         ₱{u.gfunds || 0} • {u.points || 0} pts
+                        {u.time_credit_minutes ? (
+                          <span className="text-teal-400">
+                            {" "}
+                            • {u.time_credit_minutes} free min
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex gap-1.5">
@@ -1145,6 +1163,19 @@ export default function Admin() {
         </div>
       )}
 
+      {/* ============ SHARE TIME MODAL ============ */}
+      {shareStation && (
+        <ShareModal
+          station={shareStation}
+          onClose={() => setShareStation(null)}
+          onDone={(msg) => {
+            setShareStation(null);
+            notify(msg);
+            loadStations();
+          }}
+        />
+      )}
+
       {/* ============ SCREENSHOT MODAL ============ */}
       {viewStation && (
         <ScreenshotModal
@@ -1329,4 +1360,144 @@ function formatAge(age: number | null) {
   if (age < 5) return "just now";
   if (age < 60) return `${age}s ago`;
   return `${Math.floor(age / 60)}m ago`;
+}
+
+/* ============ SHARE TIME MODAL ============ */
+function ShareModal({
+  station,
+  onClose,
+  onDone,
+}: {
+  station: Station;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
+  const [targetName, setTargetName] = useState("");
+  const [minutes, setMinutes] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const remaining = Math.floor(station.remaining_seconds / 60);
+
+  const share = async () => {
+    if (!targetName.trim() || minutes <= 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/sessions/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_station: station.name,
+          target_name: targetName.trim(),
+          minutes,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        setBusy(false);
+        return;
+      }
+      onDone(
+        `${targetName.trim()} received ${minutes} min (${data.target_credit} min total credit).`
+      );
+    } catch {
+      setError("Cannot reach the server");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+      <div className="w-full sm:max-w-md bg-[#0f1b2e] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold text-lg">
+            Share Time — <span className="text-teal-400">{station.name}</span>
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="text-sm text-zinc-400">
+          Available to share:{" "}
+          <span className="font-semibold text-emerald-400">
+            {formatRemainingShort(station.remaining_seconds)}
+          </span>
+        </div>
+
+        <div>
+          <div className="text-sm text-zinc-400 mb-1">Player to receive</div>
+          <input
+            placeholder="Exact player name"
+            value={targetName}
+            onChange={(e) => setTargetName(e.target.value)}
+            className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-teal-500/60"
+          />
+        </div>
+
+        <div>
+          <div className="text-sm text-zinc-400 mb-1">Minutes to share</div>
+          <div className="grid grid-cols-4 gap-2">
+            {[15, 30, 60, 120].map((m) => (
+              <button
+                key={m}
+                onClick={() => setMinutes(m)}
+                disabled={m > remaining}
+                className={`py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-30 ${
+                  minutes === m
+                    ? "bg-gradient-to-r from-teal-600 to-emerald-600 text-white"
+                    : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                }`}
+              >
+                {m}m
+              </button>
+            ))}
+          </div>
+          <input
+            type="number"
+            min={1}
+            max={Math.max(1, remaining)}
+            placeholder="Custom minutes"
+            value={minutes || ""}
+            onChange={(e) => setMinutes(Math.min(remaining, Math.max(1, Number(e.target.value) || 0)))}
+            className="w-full mt-2 px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-teal-500/60"
+          />
+        </div>
+
+        {targetName.trim() && minutes > 0 && (
+          <div className="text-xs text-teal-400 font-medium">
+            {minutes} min → {targetName.trim()} (credited as free time for their
+            next session)
+          </div>
+        )}
+
+        {error && <div className="text-xs text-red-400">{error}</div>}
+
+        <button
+          onClick={share}
+          disabled={busy || !targetName.trim() || minutes <= 0}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 disabled:opacity-40 transition-all"
+        >
+          {busy ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <Loader2 className="w-4 h-4 animate-spin" /> Sharing…
+            </span>
+          ) : (
+            "Share Time"
+          )}
+        </button>
+        <button
+          onClick={onClose}
+          className="w-full py-2 text-sm text-zinc-400 hover:text-white"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }

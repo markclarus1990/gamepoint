@@ -165,6 +165,8 @@ export class SessionService {
     let pointsUsed = 0;
     let gfundsUsed = 0;
 
+    const creditMinutes = user.time_credit_minutes ?? 0;
+
     if (payment === "points") {
       const pts = params.points ?? 0;
       if (!Number.isInteger(pts) || pts <= 0 || pts % POINTS_PER_REDEEM !== 0) {
@@ -189,14 +191,14 @@ export class SessionService {
     }
 
     const now = new Date();
-    const endsAt = new Date(now.getTime() + minutes * 60 * 1000);
+    const endsAt = new Date(now.getTime() + (minutes + creditMinutes) * 60 * 1000);
 
     try {
       const session = await this.sessionRepo.create({
         user_name: user.name,
         user_id: user.id,
         amount: payment === "gfunds" ? gfundsUsed : 0,
-        minutes,
+        minutes: minutes + creditMinutes,
         points: pointsUsed,
         station_name: stationName,
         status: "active",
@@ -208,6 +210,9 @@ export class SessionService {
       });
 
       await this.sessionRepo.discardPausedForUser(userId);
+      if (creditMinutes > 0) {
+        await this.userRepo.clearTimeCredit(userId);
+      }
 
       const updatedUser = await this.userRepo.findById(userId);
       const freshUser = updatedUser ?? user;
@@ -220,11 +225,12 @@ export class SessionService {
       return {
         success: true,
         session,
-        remaining_seconds: minutes * 60,
+        remaining_seconds: (minutes + creditMinutes) * 60,
         user: {
           ...freshUser,
           points: freshUser.points - pointsUsed,
           gfunds: freshUser.gfunds - gfundsUsed,
+          time_credit_minutes: 0,
         },
       };
     } catch (err: unknown) {
@@ -318,6 +324,62 @@ export class SessionService {
       const message = err instanceof Error ? err.message : "Failed to add time";
       return { error: message };
     }
+  }
+
+  async shareTime(params: {
+    sourceStation?: string;
+    sourceUserId?: string;
+    targetName: string;
+    minutes: number;
+  }): Promise<
+    | { error: string }
+    | { success: true; remaining_seconds: number; target_credit: number }
+  > {
+    if (!Number.isInteger(params.minutes) || params.minutes <= 0) {
+      return { error: "Minutes must be a positive whole number" };
+    }
+
+    await this.sessionRepo.expireOverdue();
+
+    const active = params.sourceStation
+      ? await this.sessionRepo.findActiveByStation(params.sourceStation)
+      : params.sourceUserId
+        ? await this.sessionRepo.findActiveForUser(params.sourceUserId)
+        : null;
+
+    if (!active || !active.ends_at) {
+      return { error: "Giver has no active session" };
+    }
+
+    const remaining = Math.max(
+      0,
+      Math.floor((new Date(active.ends_at).getTime() - Date.now()) / 1000)
+    );
+    if (params.minutes * 60 > remaining) {
+      return {
+        error: `Only ${Math.floor(remaining / 60)} min available to share`,
+      };
+    }
+
+    const target = await this.userRepo.findByName(params.targetName, true);
+    if (!target) {
+      return { error: "Player not found" };
+    }
+    if (active.user_id && target.id === active.user_id) {
+      return { error: "Cannot share time with yourself" };
+    }
+
+    const newEndsAt = new Date(
+      new Date(active.ends_at).getTime() - params.minutes * 60 * 1000
+    );
+    await this.sessionRepo.updateEndsAt(active.id, newEndsAt.toISOString());
+    await this.userRepo.addTimeCreditById(target.id, params.minutes);
+
+    return {
+      success: true,
+      remaining_seconds: Math.max(0, remaining - params.minutes * 60),
+      target_credit: (target.time_credit_minutes ?? 0) + params.minutes,
+    };
   }
 
   async openStationSession(
@@ -506,6 +568,7 @@ export class SessionService {
         user_points: number | null;
         user_gfunds: number | null;
         user_avatar: string | null;
+        user_time_credit: number | null;
         pending_command: string | null;
       }
   > {
@@ -528,6 +591,7 @@ export class SessionService {
         user_points: null,
         user_gfunds: null,
         user_avatar: null,
+        user_time_credit: null,
         pending_command: station.command ?? null,
       };
     }
@@ -550,6 +614,7 @@ export class SessionService {
       user_points: user?.points ?? null,
       user_gfunds: user?.gfunds ?? null,
       user_avatar: user?.avatar_url ?? null,
+      user_time_credit: user?.time_credit_minutes ?? null,
       pending_command: station.command ?? null,
     };
   }

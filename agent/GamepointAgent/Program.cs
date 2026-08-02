@@ -36,6 +36,8 @@ internal static class Program
         public int? UserGfunds { get; set; }
         [JsonPropertyName("user_avatar")]
         public string? UserAvatar { get; set; }
+        [JsonPropertyName("user_time_credit")]
+        public int? UserTimeCredit { get; set; }
         [JsonPropertyName("pending_command")]
         public string? PendingCommand { get; set; }
     }
@@ -98,6 +100,11 @@ internal static class Program
 
     private static void MakeGradientButton(Button b)
     {
+        MakeGradientButton(b, Color.FromArgb(236, 72, 153), Color.FromArgb(147, 51, 234));
+    }
+
+    private static void MakeGradientButton(Button b, Color c1, Color c2)
+    {
         b.FlatStyle = FlatStyle.Flat;
         b.FlatAppearance.BorderSize = 0;
         b.ForeColor = Color.White;
@@ -106,8 +113,8 @@ internal static class Program
         {
             using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
                 b.ClientRectangle,
-                Color.FromArgb(236, 72, 153),
-                Color.FromArgb(147, 51, 234),
+                c1,
+                c2,
                 System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
             e.Graphics.FillRectangle(brush, b.ClientRectangle);
             if (b.Enabled)
@@ -338,6 +345,10 @@ internal static class Program
         public int? CurrentPoints => _current?.UserPoints;
 
         public int? CurrentGfunds => _current?.UserGfunds;
+
+        public int CurrentRemainingSeconds => _current?.RemainingSeconds ?? 0;
+
+        public int? CurrentTimeCredit => _current?.UserTimeCredit;
 
         public ControllerForm(Config cfg)
         {
@@ -639,7 +650,7 @@ internal static class Program
                     _countdownForm.Show();
                     _countdownForm.SetTime(st.RemainingSeconds);
                     _countdownForm.SetLabel(st.StationName, st.UserName);
-                    _countdownForm.SetBalances(st.UserPoints, st.UserGfunds);
+                    _countdownForm.SetBalances(st.UserPoints, st.UserGfunds, st.UserTimeCredit);
                     _countdownForm.SetAvatar(st.UserAvatar);
                 }
                 else
@@ -1234,6 +1245,7 @@ internal static class Program
         private readonly Label _balances;
         private readonly PictureBox _avatar;
         private readonly Button _btnAddTime;
+        private readonly Button _btnShareTime;
         private readonly Button _btnChangePin;
         private readonly Button _btnLogout;
         private readonly Button _btnMin;
@@ -1298,7 +1310,7 @@ internal static class Program
                 ForeColor = Color.White,
                 Font = F(9, FontStyle.Bold),
                 Height = 30,
-                Location = new Point(172, 78),
+                Location = new Point(92, 112),
                 Size = new Size(76, 30),
                 FlatAppearance = { BorderSize = 0 }
             };
@@ -1326,6 +1338,29 @@ internal static class Program
                     _ = _controller.PollAsync();
                 }
             };
+            _btnShareTime = new Button
+            {
+                Text = "Share Time",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = C("#0d9488"),
+                ForeColor = Color.White,
+                Font = F(9, FontStyle.Bold),
+                Height = 30,
+                Location = new Point(92, 78),
+                Size = new Size(76, 30),
+                FlatAppearance = { BorderSize = 0 },
+                Visible = false
+            };
+            MakeGradientButton(_btnShareTime, Color.FromArgb(13, 148, 136), Color.FromArgb(5, 150, 105));
+            _btnShareTime.Click += (_, _) =>
+            {
+                if (string.IsNullOrEmpty(_controller.CurrentUserId)) return;
+                using var dlg = new ShareTimeForm(_controller);
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    _ = _controller.PollAsync();
+                }
+            };
             _btnChangePin = new Button
             {
                 Text = "Change PIN",
@@ -1334,7 +1369,7 @@ internal static class Program
                 ForeColor = Color.White,
                 Font = F(9, FontStyle.Bold),
                 Height = 30,
-                Location = new Point(92, 78),
+                Location = new Point(12, 112),
                 Size = new Size(76, 30),
                 FlatAppearance = { BorderSize = 0 },
                 Visible = false
@@ -1372,6 +1407,7 @@ internal static class Program
             Controls.Add(_label);
             Controls.Add(_balances);
             Controls.Add(_btnAddTime);
+            Controls.Add(_btnShareTime);
             Controls.Add(_btnChangePin);
             Controls.Add(_btnLogout);
             Controls.Add(_btnMin);
@@ -1424,6 +1460,7 @@ internal static class Program
                 _station.Visible = false;
                 _balances.Visible = false;
                 _btnAddTime.Visible = false;
+                _btnShareTime.Visible = false;
                 _btnChangePin.Visible = false;
                 _btnLogout.Visible = false;
                 _btnMin.Visible = false;
@@ -1433,10 +1470,11 @@ internal static class Program
             }
             else
             {
-                Size = new Size(260, 138);
+                Size = new Size(260, 172);
                 Region = RoundedRegion(this, 16);
                 _station.Visible = true;
                 _btnAddTime.Visible = _hasUser;
+                _btnShareTime.Visible = _hasUser;
                 _btnChangePin.Visible = _hasUser;
                 _btnLogout.Visible = true;
                 _btnMin.Visible = true;
@@ -1492,21 +1530,24 @@ internal static class Program
             _label.Text = h > 0 ? $"{h} hr {m} min" : $"{m} min";
         }
 
-        public void SetBalances(int? gfunds, int? points)
+        public void SetBalances(int? gfunds, int? points, int? timeCredit = null)
         {
             _hasUser = gfunds is not null && points is not null;
             if (gfunds is null || points is null)
             {
                 _balances.Visible = false;
                 _btnAddTime.Visible = false;
+                _btnShareTime.Visible = false;
                 _btnChangePin.Visible = false;
                 return;
             }
-            _balances.Text = $"₱{gfunds} gfunds • {points} pts";
+            var credit = timeCredit ?? 0;
+            _balances.Text = $"₱{gfunds} gfunds • {points} pts" + (credit > 0 ? $" • {credit} free min" : "");
             _balances.Visible = true;
             if (!_minimized)
             {
                 _btnAddTime.Visible = true;
+                _btnShareTime.Visible = true;
                 _btnChangePin.Visible = true;
             }
         }
@@ -1516,6 +1557,7 @@ internal static class Program
             _hasUser = false;
             _balances.Visible = false;
             _btnAddTime.Visible = false;
+            _btnShareTime.Visible = false;
             _btnChangePin.Visible = false;
         }
 
@@ -1786,6 +1828,178 @@ internal static class Program
                 if (json.TryGetProperty("error", out var err))
                 {
                     _lblError.Text = err.GetString() ?? "Failed to add time";
+                    return;
+                }
+                DialogResult = DialogResult.OK;
+                Close();
+            }
+            catch
+            {
+                _lblError.Text = "Cannot reach the server";
+            }
+        }
+    }
+
+    private sealed class ShareTimeForm : Form
+    {
+        private readonly ControllerForm _controller;
+        private readonly TextBox _txtTarget;
+        private readonly FlowLayoutPanel _minutesPanel;
+        private readonly Label _lblPreview;
+        private readonly Label _lblError;
+        private NumericUpDown? _numCustom;
+        private int _selectedMinutes;
+        private string _targetName = "";
+
+        public ShareTimeForm(ControllerForm controller)
+        {
+            _controller = controller;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.CenterParent;
+            BackColor = C(COLOR_BG);
+            Size = new Size(320, 430);
+            TopMost = true;
+
+            var remainingMinutes = controller.CurrentRemainingSeconds / 60;
+            var title = DarkLabel("Share Time", 16, Color.White, true);
+            var lblRemaining = DarkLabel(
+                $"You have {FmtMinutes(Math.Max(0, remainingMinutes))} left",
+                11,
+                C(COLOR_GREEN),
+                true);
+            var lblTarget = DarkLabel("Share with player (exact name):", 10, Color.FromArgb(160, 160, 175));
+            _txtTarget = new TextBox
+            {
+                BackColor = C(COLOR_INPUT),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = F(12),
+                Size = new Size(280, 36)
+            };
+            var lblMinutes = DarkLabel("Minutes to share:", 10, Color.FromArgb(160, 160, 175));
+            _minutesPanel = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Size = new Size(280, 86),
+                BackColor = Color.Transparent
+            };
+            _lblPreview = DarkLabel("", 12, Color.White, true);
+            _lblError = DarkLabel("", 10, C(COLOR_ERROR));
+            _lblError.MaximumSize = new Size(280, 40);
+            var btnShare = DarkButton("Share", COLOR_ACCENT);
+            MakeGradientButton(btnShare, Color.FromArgb(13, 148, 136), Color.FromArgb(5, 150, 105));
+            btnShare.Click += async (_, _) => await ConfirmAsync();
+            var btnCancel = DarkButton("Cancel", "#334155");
+            RoundButton(btnCancel, 10);
+            btnCancel.Click += (_, _) => Close();
+            _txtTarget.KeyDown += (_, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    _ = ConfirmAsync();
+                }
+            };
+
+            title.Location = new Point(20, 14);
+            lblRemaining.Location = new Point(20, 48);
+            lblTarget.Location = new Point(20, 82);
+            _txtTarget.Location = new Point(20, 102);
+            lblMinutes.Location = new Point(20, 148);
+            _minutesPanel.Location = new Point(20, 168);
+            _lblPreview.Location = new Point(20, 262);
+            _lblError.Location = new Point(20, 288);
+            btnShare.Location = new Point(20, 336);
+            btnShare.Size = new Size(180, 40);
+            btnCancel.Location = new Point(210, 336);
+            btnCancel.Size = new Size(90, 40);
+
+            Controls.AddRange(new Control[] { title, lblRemaining, lblTarget, _txtTarget, lblMinutes, _minutesPanel, _lblPreview, _lblError, btnShare, btnCancel });
+
+            BuildMinutesPanel();
+        }
+
+        private void BuildMinutesPanel()
+        {
+            _selectedMinutes = 0;
+            _lblPreview.Text = "";
+            _lblError.Text = "";
+            var maxMinutes = Math.Max(1, _controller.CurrentRemainingSeconds / 60);
+
+            _minutesPanel.Controls.Clear();
+            foreach (var m in new[] { 15, 30, 60, 120 })
+            {
+                var btn = QuickButton($"{m} min");
+                btn.Tag = m;
+                btn.Enabled = m <= maxMinutes;
+                btn.Click += (sender, _) =>
+                {
+                    if (sender is not Button b || b.Tag is not int min) return;
+                    SelectMinutes(min);
+                };
+                _minutesPanel.Controls.Add(btn);
+            }
+
+            _numCustom = new NumericUpDown
+            {
+                Minimum = 1,
+                Maximum = Math.Max(1, maxMinutes),
+                Value = Math.Min(15, maxMinutes),
+                Width = 160,
+                Height = 34,
+                BackColor = C(COLOR_INPUT),
+                ForeColor = Color.White,
+                Font = F(12),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            _numCustom.ValueChanged += (_, _) => SelectMinutes((int)_numCustom.Value);
+            _minutesPanel.Controls.Add(_numCustom);
+        }
+
+        private void SelectMinutes(int minutes)
+        {
+            _selectedMinutes = minutes;
+            _targetName = _txtTarget.Text.Trim();
+            _lblPreview.Text = _targetName.Length > 0
+                ? $"{FmtMinutes(minutes)} → {_targetName}"
+                : FmtMinutes(minutes);
+            _lblError.Text = "";
+        }
+
+        private async Task ConfirmAsync()
+        {
+            var userId = _controller.CurrentUserId;
+            _targetName = _txtTarget.Text.Trim();
+            if (string.IsNullOrEmpty(userId))
+            {
+                _lblError.Text = "No player signed in";
+                return;
+            }
+            if (_targetName.Length == 0)
+            {
+                _lblError.Text = "Enter the player's name";
+                return;
+            }
+            if (_selectedMinutes <= 0)
+            {
+                _lblError.Text = "Choose how many minutes to share";
+                return;
+            }
+
+            _lblError.Text = "Sharing...";
+            try
+            {
+                using var resp = await _controller.Http.PostAsJsonAsync("api/sessions/share", new
+                {
+                    source_user_id = userId,
+                    target_name = _targetName,
+                    minutes = _selectedMinutes
+                });
+                var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                if (json.TryGetProperty("error", out var err))
+                {
+                    _lblError.Text = err.GetString() ?? "Failed to share time";
                     return;
                 }
                 DialogResult = DialogResult.OK;
