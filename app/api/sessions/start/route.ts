@@ -5,7 +5,7 @@ const sessionService = new SessionService();
 export async function POST(req: Request) {
   const { user_id, station_name, payment, points, gfunds } = await req.json();
 
-  if (!user_id || !station_name || (payment !== "points" && payment !== "gfunds")) {
+  if (!user_id || !station_name || (payment !== "points" && payment !== "gfunds" && payment !== "credit")) {
     return Response.json({ error: "Invalid request" }, { status: 400 });
   }
 

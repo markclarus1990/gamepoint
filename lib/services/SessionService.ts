@@ -130,7 +130,7 @@ export class SessionService {
   async startSession(params: {
     userId: string;
     stationName: string;
-    payment: "points" | "gfunds";
+    payment: "points" | "gfunds" | "credit";
     points?: number;
     gfunds?: number;
   }): Promise<
@@ -178,7 +178,7 @@ export class SessionService {
       }
       pointsUsed = pts;
       minutes = (pts / POINTS_PER_REDEEM) * MINUTES_PER_POINT_REDEEM;
-    } else {
+    } else if (payment === "gfunds") {
       const g = params.gfunds ?? 0;
       if (!Number.isInteger(g) || g <= 0) {
         return { error: "Gfunds must be a positive whole number" };
@@ -188,17 +188,24 @@ export class SessionService {
       }
       gfundsUsed = g;
       minutes = g * MINUTES_PER_PESO;
+    } else {
+      if (creditMinutes <= 0) {
+        return { error: "No shared time available" };
+      }
+      minutes = creditMinutes;
     }
 
     const now = new Date();
-    const endsAt = new Date(now.getTime() + (minutes + creditMinutes) * 60 * 1000);
+    const totalMinutes =
+      payment === "credit" ? minutes : minutes + creditMinutes;
+    const endsAt = new Date(now.getTime() + totalMinutes * 60 * 1000);
 
     try {
       const session = await this.sessionRepo.create({
         user_name: user.name,
         user_id: user.id,
         amount: payment === "gfunds" ? gfundsUsed : 0,
-        minutes: minutes + creditMinutes,
+        minutes: totalMinutes,
         points: pointsUsed,
         station_name: stationName,
         status: "active",
@@ -225,7 +232,7 @@ export class SessionService {
       return {
         success: true,
         session,
-        remaining_seconds: (minutes + creditMinutes) * 60,
+        remaining_seconds: totalMinutes * 60,
         user: {
           ...freshUser,
           points: freshUser.points - pointsUsed,
@@ -333,7 +340,12 @@ export class SessionService {
     minutes: number;
   }): Promise<
     | { error: string }
-    | { success: true; remaining_seconds: number; target_credit: number }
+    | {
+        success: true;
+        remaining_seconds: number;
+        target_credit: number;
+        target_session_seconds: number | null;
+      }
   > {
     if (!Number.isInteger(params.minutes) || params.minutes <= 0) {
       return { error: "Minutes must be a positive whole number" };
@@ -373,12 +385,39 @@ export class SessionService {
       new Date(active.ends_at).getTime() - params.minutes * 60 * 1000
     );
     await this.sessionRepo.updateEndsAt(active.id, newEndsAt.toISOString());
+
+    const targetSession = await this.sessionRepo.findActiveForUser(target.id);
+    if (targetSession) {
+      const baseMs = Math.max(
+        targetSession.ends_at
+          ? new Date(targetSession.ends_at).getTime()
+          : Date.now(),
+        Date.now()
+      );
+      const targetEndsAt = new Date(baseMs + params.minutes * 60 * 1000);
+      await this.sessionRepo.updateEndsAt(
+        targetSession.id,
+        targetEndsAt.toISOString()
+      );
+
+      return {
+        success: true,
+        remaining_seconds: Math.max(0, remaining - params.minutes * 60),
+        target_credit: target.time_credit_minutes ?? 0,
+        target_session_seconds: Math.max(
+          0,
+          Math.floor((targetEndsAt.getTime() - Date.now()) / 1000)
+        ),
+      };
+    }
+
     await this.userRepo.addTimeCreditById(target.id, params.minutes);
 
     return {
       success: true,
       remaining_seconds: Math.max(0, remaining - params.minutes * 60),
       target_credit: (target.time_credit_minutes ?? 0) + params.minutes,
+      target_session_seconds: null,
     };
   }
 

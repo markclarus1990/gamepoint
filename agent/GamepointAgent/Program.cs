@@ -52,6 +52,8 @@ internal static class Program
         public int Gfunds { get; set; }
         [JsonPropertyName("avatar_url")]
         public string? AvatarUrl { get; set; }
+        [JsonPropertyName("time_credit_minutes")]
+        public int TimeCreditMinutes { get; set; }
     }
 
     private sealed class StartResponse
@@ -399,19 +401,35 @@ internal static class Program
                 if (!resp.IsSuccessStatusCode) return;
                 var st = await resp.Content.ReadFromJsonAsync<Status>();
                 if (st is null) return;
-                ApplyStatus(st);
+
                 if (!string.IsNullOrEmpty(st.PendingCommand))
                 {
-                    if (st.PendingCommand == "screenshot")
+                    try
                     {
-                        await CaptureAndUploadScreenshotAsync();
-                        await AckCommandAsync();
+                        if (st.PendingCommand == "screenshot")
+                        {
+                            await CaptureAndUploadScreenshotAsync();
+                            await AckCommandAsync();
+                        }
+                        else
+                        {
+                            await AckCommandAsync();
+                            ExecuteCommand(st.PendingCommand);
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        await AckCommandAsync();
-                        ExecuteCommand(st.PendingCommand);
+                        Dbg($"Command handling failed: {ex.Message}");
                     }
+                }
+
+                try
+                {
+                    ApplyStatus(st);
+                }
+                catch (Exception ex)
+                {
+                    Dbg($"ApplyStatus failed: {ex.Message}");
                 }
             }
             catch
@@ -459,13 +477,20 @@ internal static class Program
             }
             try
             {
-                MessageBox.Show(
-                    command == "restart"
-                        ? "This PC will restart in 20 seconds."
-                        : "This PC will shut down in 20 seconds.",
-                    "Gamepoint Agent",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                var msg = command == "restart"
+                    ? "This PC will restart in 20 seconds."
+                    : "This PC will shut down in 20 seconds.";
+                var active = (Form?)ActiveForm ?? (Form?)_lockForm ?? _countdownForm;
+                if (active is not null && !active.IsDisposed)
+                {
+                    var notice = new CommandNoticeForm(msg, active);
+                    notice.Show(active);
+                }
+                else
+                {
+                    var notice = new CommandNoticeForm(msg, null);
+                    notice.Show();
+                }
             }
             catch
             {
@@ -738,6 +763,8 @@ internal static class Program
         private readonly Label _lblBalances;
         private readonly Label _lblResume;
         private readonly Button _btnResume;
+        private readonly Label _lblCredit;
+        private readonly Button _btnCredit;
         private readonly Button _btnPoints;
         private readonly Button _btnGfunds;
         private readonly FlowLayoutPanel _amountPanel;
@@ -750,6 +777,7 @@ internal static class Program
         private int _selectedAmount;
         private NumericUpDown? _numCustom;
         private int _resumeSeconds;
+        private int _creditMinutes;
 
         public bool AllowClose { get; set; }
 
@@ -839,6 +867,12 @@ internal static class Program
             MakeGradientButton(_btnResume);
             _btnResume.Visible = false;
             _btnResume.Click += async (_, _) => await DoResumeAsync();
+            _lblCredit = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
+            _lblCredit.Visible = false;
+            _btnCredit = DarkButton("Continue with Shared Time", COLOR_GREEN);
+            MakeGradientButton(_btnCredit, Color.FromArgb(13, 148, 136), Color.FromArgb(5, 150, 105));
+            _btnCredit.Visible = false;
+            _btnCredit.Click += async (_, _) => await DoContinueCreditAsync();
             var lblPayWith = DarkLabel("Pay with:", 10, Color.FromArgb(160, 160, 175));
             _btnPoints = DarkButton("Gamepoints", COLOR_ACCENT);
             _btnGfunds = DarkButton("Gfunds", COLOR_INPUT);
@@ -871,10 +905,15 @@ internal static class Program
             _lblBalances.Location = new Point(0, payY);
             payY += 28;
             _lblResume.Location = new Point(0, payY);
-            payY += 22;
+            payY += 20;
             _btnResume.Location = new Point(0, payY);
-            _btnResume.Size = new Size(340, 40);
-            payY += 54;
+            _btnResume.Size = new Size(340, 38);
+            payY += 50;
+            _lblCredit.Location = new Point(0, payY);
+            payY += 20;
+            _btnCredit.Location = new Point(0, payY);
+            _btnCredit.Size = new Size(340, 38);
+            payY += 50;
             lblPayWith.Location = new Point(0, payY);
             payY += 22;
             _btnPoints.Location = new Point(0, payY);
@@ -885,17 +924,17 @@ internal static class Program
             lblAmount.Location = new Point(0, payY);
             payY += 22;
             _amountPanel.Location = new Point(0, payY);
-            payY += 96;
+            payY += 88;
             _lblTime.Location = new Point(0, payY);
             payY += 28;
             _btnStart.Location = new Point(0, payY);
             _btnStart.Size = new Size(340, 42);
-            payY += 56;
+            payY += 54;
             _lblStartError.Location = new Point(0, payY);
             btnLogout.Location = new Point(0, 510);
             btnLogout.Size = new Size(340, 36);
 
-            _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, btnLogout });
+            _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, _lblCredit, _btnCredit, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, btnLogout });
 
             Controls.AddRange(new Control[] { titleGame, titlePoint, stationLine, hint, _card });
             _card.Controls.Add(_loginPanel);
@@ -970,8 +1009,11 @@ internal static class Program
             _payment = "points";
             _selectedAmount = 0;
             _resumeSeconds = 0;
+            _creditMinutes = 0;
             _lblResume.Visible = false;
             _btnResume.Visible = false;
+            _lblCredit.Visible = false;
+            _btnCredit.Visible = false;
             _lblStartError.Text = "";
             _lblStatus.Text = "";
             _lblStatus.Visible = false;
@@ -1085,10 +1127,14 @@ internal static class Program
                 _controller.CurrentPlayer = _user;
                 _lblStatus.Visible = false;
                 _lblUser.Text = $"Player: {_user.Name}";
-                _lblBalances.Text = $"Gfunds ₱{_user.Gfunds}  •  Gamepoints {_user.Points - _user.ReservedPoints}";
+                var creditText = _user.TimeCreditMinutes > 0
+                    ? $"  •  {FmtMinutes(_user.TimeCreditMinutes)} shared time"
+                    : "";
+                _lblBalances.Text = $"Gfunds ₱{_user.Gfunds}  •  Gamepoints {_user.Points - _user.ReservedPoints}{creditText}";
                 _ = LoadAvatarAsync(_controller.Http, _avatar, _user.AvatarUrl);
 
                 _resumeSeconds = 0;
+                _creditMinutes = _user.TimeCreditMinutes;
                 try
                 {
                     using var resumeResp = await _controller.Http.GetAsync($"api/sessions/resume?user_id={Uri.EscapeDataString(_user.Id)}");
@@ -1115,18 +1161,21 @@ internal static class Program
 
         private void ShowPayment()
         {
+            _lblResume.Visible = _resumeSeconds > 0;
+            _btnResume.Visible = _resumeSeconds > 0;
+            _lblCredit.Visible = _creditMinutes > 0;
+            _btnCredit.Visible = _creditMinutes > 0;
+
             if (_resumeSeconds > 0)
             {
                 var mins = (int)Math.Ceiling(_resumeSeconds / 60.0);
                 _lblResume.Text = $"Saved time: {FmtMinutes(mins)} left from your last session";
-                _lblResume.Visible = true;
                 _btnResume.Text = $"Resume Session — {FmtMinutes(mins)}";
-                _btnResume.Visible = true;
             }
-            else
+            if (_creditMinutes > 0)
             {
-                _lblResume.Visible = false;
-                _btnResume.Visible = false;
+                _lblCredit.Text = $"Shared time: {FmtMinutes(_creditMinutes)} received from another player";
+                _btnCredit.Text = $"Continue with Shared Time — {FmtMinutes(_creditMinutes)}";
             }
 
             SetPayment("points");
@@ -1139,6 +1188,8 @@ internal static class Program
             }
             _lblResume.Visible = _resumeSeconds > 0;
             _btnResume.Visible = _resumeSeconds > 0;
+            _lblCredit.Visible = _creditMinutes > 0;
+            _btnCredit.Visible = _creditMinutes > 0;
             Activate();
             Dbg($"ShowPayment login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} user={( _user is null ? "null" : _user.Name )}");
         }
@@ -1174,6 +1225,45 @@ internal static class Program
             finally
             {
                 _btnResume.Enabled = true;
+            }
+        }
+
+        private async Task DoContinueCreditAsync()
+        {
+            if (_user is null || _creditMinutes <= 0)
+            {
+                return;
+            }
+
+            _btnCredit.Enabled = false;
+            _lblStartError.Text = "Starting...";
+            try
+            {
+                using var resp = await _controller.Http.PostAsJsonAsync("api/sessions/start", new
+                {
+                    user_id = _user.Id,
+                    station_name = _controller.StationName,
+                    payment = "credit"
+                });
+                var data = await resp.Content.ReadFromJsonAsync<StartResponse>();
+                if (!string.IsNullOrEmpty(data?.Error))
+                {
+                    _lblStartError.Text = data.Error;
+                    return;
+                }
+                _loginPanel.Visible = false;
+                _paymentPanel.Visible = false;
+                _controller.UnlockSession(data?.RemainingSeconds ?? 0, _user.Name);
+                _lblStartError.Text = "";
+                Activate();
+            }
+            catch
+            {
+                _lblStartError.Text = "Cannot reach the server";
+            }
+            finally
+            {
+                _btnCredit.Enabled = true;
             }
         }
 
@@ -2008,6 +2098,46 @@ internal static class Program
             catch
             {
                 _lblError.Text = "Cannot reach the server";
+            }
+        }
+    }
+
+    private sealed class CommandNoticeForm : Form
+    {
+        public CommandNoticeForm(string message, Form? owner)
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            BackColor = C(COLOR_BG);
+            Size = new Size(380, 110);
+            TopMost = true;
+            ShowInTaskbar = false;
+            StartPosition = owner is null
+                ? FormStartPosition.CenterScreen
+                : FormStartPosition.CenterParent;
+
+            var lbl = DarkLabel(message, 13, Color.White, true);
+            lbl.MaximumSize = new Size(340, 60);
+            lbl.Location = new Point(20, 16);
+            var btnOk = DarkButton("OK", "#334155");
+            RoundButton(btnOk, 10);
+            btnOk.Size = new Size(120, 34);
+            btnOk.Location = new Point(130, 62);
+            btnOk.Click += (_, _) => Close();
+
+            Region = RoundedRegion(this, 14);
+            Controls.Add(lbl);
+            Controls.Add(btnOk);
+
+            var autoClose = new System.Windows.Forms.Timer { Interval = 15000 };
+            autoClose.Tick += (_, _) =>
+            {
+                autoClose.Stop();
+                Close();
+            };
+            Load += (_, _) => autoClose.Start();
+            if (owner is not null)
+            {
+                Owner = owner;
             }
         }
     }

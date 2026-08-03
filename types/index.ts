@@ -90,6 +90,7 @@ export interface LoginResponse {
   points: number;
   reserved_points: number;
   gfunds: number;
+  time_credit_minutes?: number;
 }
 
 export interface PaginatedResponse<T> {

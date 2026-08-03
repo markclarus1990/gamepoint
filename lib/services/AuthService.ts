@@ -47,6 +47,7 @@ export class AuthService {
       points: user.points,
       reserved_points: user.reserved_points,
       gfunds: user.gfunds ?? 0,
+      time_credit_minutes: user.time_credit_minutes ?? 0,
     };
   }
 
@@ -85,6 +86,7 @@ export class AuthService {
       points: user.points,
       reserved_points: user.reserved_points,
       gfunds: user.gfunds ?? 0,
+      time_credit_minutes: user.time_credit_minutes ?? 0,
     };
   }
 

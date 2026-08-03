@@ -1399,9 +1399,15 @@ function ShareModal({
         setBusy(false);
         return;
       }
-      onDone(
-        `${targetName.trim()} received ${minutes} min (${data.target_credit} min total credit).`
-      );
+      if (data.target_session_seconds != null) {
+        onDone(
+          `${targetName.trim()} received ${minutes} min — added to their active session (${formatRemainingShort(data.target_session_seconds)} left).`
+        );
+      } else {
+        onDone(
+          `${targetName.trim()} received ${minutes} min as free time credit (${data.target_credit} min total).`
+        );
+      }
     } catch {
       setError("Cannot reach the server");
       setBusy(false);
@@ -1471,8 +1477,8 @@ function ShareModal({
 
         {targetName.trim() && minutes > 0 && (
           <div className="text-xs text-teal-400 font-medium">
-            {minutes} min → {targetName.trim()} (credited as free time for their
-            next session)
+            {minutes} min → {targetName.trim()} (added to their session if
+            they are playing now, otherwise saved as free time credit)
           </div>
         )}
 
