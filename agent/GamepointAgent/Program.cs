@@ -4,6 +4,7 @@ using System.Drawing.Imaging;
 using System.Net;
 using System.Net.Http.Json;
 using System.Runtime.InteropServices;
+using StringBuilder = System.Text.StringBuilder;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -18,6 +19,9 @@ internal static class Program
         public string StationName { get; set; } = "";
         public int PollSeconds { get; set; } = 10;
         public int StationPort { get; set; } = 3987;
+        public bool MinimizeGamesOnLock { get; set; } = true;
+        public bool BlockAltTab { get; set; } = true;
+        public int[] AnnounceMinutesLeft { get; set; } = new[] { 10, 3, 1 };
     }
 
     private sealed class Status
@@ -349,6 +353,20 @@ internal static class Program
         private DateTime _lastControlShot = DateTime.MinValue;
         private const int RemotePollMs = 1000;
         private const int ControlShotThrottleMs = 1200;
+        private string _soundsDir = "";
+        private static readonly int[] FallbackAnnounceMinutes = new[] { 10, 3, 1 };
+
+        private static IntPtr _hookHandle;
+        private static LowLevelKeyboardProc? _hookProc;
+        private static volatile bool _blockKeysEnabled;
+        private const int WhKeyboardLl = 13;
+        private const int LlKfInjected = 0x10;
+        private const int LlKfAltdown = 0x20;
+        private const int LlKfControl = 0x08;
+        private const int VkTab = 0x09;
+        private const int VkEscape = 0x1B;
+        private const int VkLwin = 0x5B;
+        private const int VkRwin = 0x5C;
 
         public HttpClient Http => _http;
         public string StationName => _cfg.StationName;
@@ -397,6 +415,9 @@ internal static class Program
 
             Load += async (_, _) =>
             {
+                _blockKeysEnabled = _cfg.BlockAltTab;
+                InstallKeyboardHook();
+                await DownloadSoundsAsync();
                 await PollAsync();
                 _pollTimer.Start();
                 _clockTimer.Start();
@@ -651,6 +672,48 @@ internal static class Program
                 bounds.Y + (int)Math.Round(imgY * scale));
         }
 
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+        private const int SwForcemMinimize = 11;
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(
+            int idHook,
+            LowLevelKeyboardProc lpfn,
+            IntPtr hMod,
+            uint dwThreadId);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(
+            IntPtr hhk,
+            int nCode,
+            IntPtr wParam,
+            IntPtr lParam);
+
+        [DllImport("winmm.dll")]
+        private static extern int mciSendString(
+            string command,
+            StringBuilder returnString,
+            int returnLength,
+            IntPtr hwndCallback);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);
+
         private static class NativeInput
         {
             private const uint InputMouse = 0;
@@ -866,6 +929,176 @@ internal static class Program
                 StationName = _cfg.StationName,
                 UserName = ""
             });
+            ReclaimDisplay();
+        }
+
+        public int[] AnnounceMinutes =>
+            _cfg.AnnounceMinutesLeft is { Length: > 0 }
+                ? _cfg.AnnounceMinutesLeft
+                : FallbackAnnounceMinutes;
+
+        public void ReclaimDisplay()
+        {
+            if (!_cfg.MinimizeGamesOnLock) return;
+            try
+            {
+                var own = (uint)Environment.ProcessId;
+                EnumWindows((hwnd, _) =>
+                {
+                    GetWindowThreadProcessId(hwnd, out var pid);
+                    if (pid != own && IsWindowVisible(hwnd))
+                    {
+                        ShowWindow(hwnd, SwForcemMinimize);
+                    }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch
+            {
+                // best effort
+            }
+        }
+
+        private static void InstallKeyboardHook()
+        {
+            if (_hookHandle != IntPtr.Zero) return;
+            try
+            {
+                _hookProc = KeyboardHookCallback;
+                using var cur = Process.GetCurrentProcess();
+                using var mod = cur.MainModule;
+                _hookHandle = SetWindowsHookEx(
+                    WhKeyboardLl,
+                    _hookProc,
+                    GetModuleHandle(mod?.ModuleName ?? ""),
+                    0);
+                Dbg(_hookHandle != IntPtr.Zero
+                    ? "Keyboard hook installed"
+                    : "Keyboard hook failed to install");
+            }
+            catch (Exception ex)
+            {
+                Dbg($"Keyboard hook error: {ex.Message}");
+            }
+        }
+
+        private static IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && _blockKeysEnabled)
+            {
+                var flags = Marshal.ReadInt32(lParam, 8);
+                if ((flags & LlKfInjected) == 0)
+                {
+                    var vk = Marshal.ReadInt32(lParam);
+                    var isAlt = (flags & LlKfAltdown) != 0;
+                    var isCtrl = (flags & LlKfControl) != 0;
+                    var blocked =
+                        (vk == VkTab && isAlt) ||
+                        (vk == VkEscape && (isAlt || isCtrl)) ||
+                        vk == VkLwin ||
+                        vk == VkRwin;
+                    if (blocked)
+                    {
+                        return (IntPtr)1;
+                    }
+                }
+            }
+            return CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
+        }
+
+        private async Task DownloadSoundsAsync()
+        {
+            _soundsDir = Path.Combine(Path.GetTempPath(), "GamepointAgentSounds");
+            try
+            {
+                Directory.CreateDirectory(_soundsDir);
+            }
+            catch
+            {
+            }
+            foreach (var minutes in AnnounceMinutes)
+            {
+                var file = SoundFileName(minutes);
+                var local = Path.Combine(_soundsDir, file);
+                if (File.Exists(local)) continue;
+                try
+                {
+                    using var resp = await _http.GetAsync($"sounds/{file}");
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var bytes = await resp.Content.ReadAsByteArrayAsync();
+                        await File.WriteAllBytesAsync(local, bytes);
+                        Dbg($"Sound downloaded: {file}");
+                    }
+                    else
+                    {
+                        Dbg($"Sound download {file}: HTTP {(int)resp.StatusCode}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Dbg($"Sound download {file} failed: {ex.Message}");
+                }
+            }
+        }
+
+        private static string SoundFileName(int minutes) => minutes switch
+        {
+            1 => "1minute.mp3",
+            _ => $"{minutes}minutes.mp3"
+        };
+
+        public void PlayAnnouncement(int minutes)
+        {
+            var file = SoundFileName(minutes);
+            var dir = _soundsDir;
+            var http = _http;
+            Task.Run(async () =>
+            {
+                var local = Path.Combine(dir, file);
+                if (!File.Exists(local))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(dir);
+                        using var resp = await http.GetAsync($"sounds/{file}");
+                        if (resp.IsSuccessStatusCode)
+                        {
+                            var bytes = await resp.Content.ReadAsByteArrayAsync();
+                            await File.WriteAllBytesAsync(local, bytes);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+                if (!File.Exists(local)) return;
+                try
+                {
+                    MciPlay(local);
+                    Dbg($"Announcement played: {minutes} min");
+                }
+                catch (Exception ex)
+                {
+                    Dbg($"Announcement play failed: {ex.Message}");
+                }
+            });
+        }
+
+        private static void MciPlay(string path)
+        {
+            var sb = new StringBuilder(256);
+            mciSendString("close gp_snd", sb, sb.Capacity, IntPtr.Zero);
+            var open = $"open \"{path}\" type mpegvideo alias gp_snd";
+            if (mciSendString(open, sb, sb.Capacity, IntPtr.Zero) != 0)
+            {
+                mciSendString(
+                    $"open \"{path}\" alias gp_snd",
+                    sb,
+                    sb.Capacity,
+                    IntPtr.Zero);
+            }
+            mciSendString("play gp_snd from 0", sb, sb.Capacity, IntPtr.Zero);
         }
 
         public async Task<(bool ok, int remainingSeconds)> LogoutAsync()
@@ -952,6 +1185,7 @@ internal static class Program
                 _countdownForm?.SetBalances();
                 _countdownForm?.Hide();
                 _keepOnTopTimer.Start();
+                ReclaimDisplay();
             }
             else
             {
@@ -974,6 +1208,7 @@ internal static class Program
                     _countdownForm.SetLabel(st.StationName, st.UserName);
                     _countdownForm.SetBalances(st.UserPoints, st.UserGfunds, st.UserTimeCredit);
                     _countdownForm.SetAvatar(st.UserAvatar);
+                    ReclaimDisplay();
                 }
                 else
                 {
@@ -1280,6 +1515,7 @@ internal static class Program
             if (IsDisposed || !Visible) return;
             Activate();
             BringToFront();
+            _controller.ReclaimDisplay();
         }
 
         private void ShowLogin()
@@ -1910,11 +2146,30 @@ internal static class Program
             _station.Text = $"{station} • {user}";
         }
 
+        private readonly HashSet<int> _announced = new();
+        private int _lastSeconds = -1;
+
         public void SetTime(int totalSeconds)
         {
             var h = totalSeconds / 3600;
             var m = (totalSeconds % 3600) / 60;
             _label.Text = h > 0 ? $"{h} hr {m} min" : $"{m} min";
+
+            if (totalSeconds > _lastSeconds + 30)
+            {
+                _announced.Clear();
+            }
+            foreach (var threshold in _controller.AnnounceMinutes)
+            {
+                var limit = threshold * 60;
+                if (_lastSeconds > limit &&
+                    totalSeconds <= limit &&
+                    _announced.Add(threshold))
+                {
+                    _controller.PlayAnnouncement(threshold);
+                }
+            }
+            _lastSeconds = totalSeconds;
         }
 
         public void SetBalances(int? gfunds, int? points, int? timeCredit = null)
