@@ -1167,6 +1167,7 @@ export default function Admin() {
       {shareStation && (
         <ShareModal
           station={shareStation}
+          users={users}
           onClose={() => setShareStation(null)}
           onDone={(msg) => {
             setShareStation(null);
@@ -1365,19 +1366,30 @@ function formatAge(age: number | null) {
 /* ============ SHARE TIME MODAL ============ */
 function ShareModal({
   station,
+  users,
   onClose,
   onDone,
 }: {
   station: Station;
+  users: User[];
   onClose: () => void;
   onDone: (msg: string) => void;
 }) {
   const [targetName, setTargetName] = useState("");
+  const [showList, setShowList] = useState(false);
   const [minutes, setMinutes] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const remaining = Math.floor(station.remaining_seconds / 60);
+
+  const filtered = users
+    .filter(
+      (u) =>
+        u.name.toLowerCase().includes(targetName.trim().toLowerCase()) &&
+        u.name !== station.active?.user_name
+    )
+    .slice(0, 8);
 
   const share = async () => {
     if (!targetName.trim() || minutes <= 0) return;
@@ -1401,7 +1413,7 @@ function ShareModal({
       }
       if (data.target_session_seconds != null) {
         onDone(
-          `${targetName.trim()} received ${minutes} min — added to their active session (${formatRemainingShort(data.target_session_seconds)} left).`
+          `${targetName.trim()} received ${minutes} min — added to their active session${data.target_station ? ` on ${data.target_station}` : ""} (${formatRemainingShort(data.target_session_seconds)} left).`
         );
       } else {
         onDone(
@@ -1436,14 +1448,37 @@ function ShareModal({
           </span>
         </div>
 
-        <div>
+        <div className="relative">
           <div className="text-sm text-zinc-400 mb-1">Player to receive</div>
           <input
-            placeholder="Exact player name"
+            placeholder="Search player name…"
             value={targetName}
-            onChange={(e) => setTargetName(e.target.value)}
+            onChange={(e) => {
+              setTargetName(e.target.value);
+              setShowList(true);
+            }}
+            onFocus={() => setShowList(true)}
+            onBlur={() => setTimeout(() => setShowList(false), 150)}
             className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-teal-500/60"
           />
+          {showList && filtered.length > 0 && (
+            <div className="absolute z-10 left-0 right-0 mt-1 max-h-44 overflow-y-auto bg-[#1e293b] border border-white/10 rounded-xl shadow-2xl shadow-black/50">
+              {filtered.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setTargetName(u.name);
+                    setShowList(false);
+                  }}
+                  className="w-full text-left px-3.5 py-2 text-sm text-zinc-200 hover:bg-teal-500/20 hover:text-white transition-colors truncate"
+                >
+                  {u.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>

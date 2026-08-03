@@ -63,6 +63,11 @@ internal static class Program
         public int RemainingSeconds { get; set; }
     }
 
+    private sealed class UserNameRow
+    {
+        public string Name { get; set; } = "";
+    }
+
     private static readonly JsonSerializerOptions ApiJson = new(JsonSerializerDefaults.Web);
 
     private const string COLOR_BG = "#0b1220";
@@ -1933,7 +1938,7 @@ internal static class Program
     private sealed class ShareTimeForm : Form
     {
         private readonly ControllerForm _controller;
-        private readonly TextBox _txtTarget;
+        private readonly ComboBox _cmbTarget;
         private readonly FlowLayoutPanel _minutesPanel;
         private readonly Label _lblPreview;
         private readonly Label _lblError;
@@ -1957,14 +1962,17 @@ internal static class Program
                 11,
                 C(COLOR_GREEN),
                 true);
-            var lblTarget = DarkLabel("Share with player (exact name):", 10, Color.FromArgb(160, 160, 175));
-            _txtTarget = new TextBox
+            var lblTarget = DarkLabel("Share with player:", 10, Color.FromArgb(160, 160, 175));
+            _cmbTarget = new ComboBox
             {
                 BackColor = C(COLOR_INPUT),
                 ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
                 Font = F(12),
-                Size = new Size(280, 36)
+                FlatStyle = FlatStyle.Flat,
+                DropDownStyle = ComboBoxStyle.DropDown,
+                Size = new Size(280, 30),
+                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+                AutoCompleteSource = AutoCompleteSource.ListItems
             };
             var lblMinutes = DarkLabel("Minutes to share:", 10, Color.FromArgb(160, 160, 175));
             _minutesPanel = new FlowLayoutPanel
@@ -1983,7 +1991,7 @@ internal static class Program
             var btnCancel = DarkButton("Cancel", "#334155");
             RoundButton(btnCancel, 10);
             btnCancel.Click += (_, _) => Close();
-            _txtTarget.KeyDown += (_, e) =>
+            _cmbTarget.KeyDown += (_, e) =>
             {
                 if (e.KeyCode == Keys.Enter)
                 {
@@ -1991,11 +1999,12 @@ internal static class Program
                     _ = ConfirmAsync();
                 }
             };
+            _cmbTarget.TextChanged += (_, _) => UpdatePreview();
 
             title.Location = new Point(20, 14);
             lblRemaining.Location = new Point(20, 48);
             lblTarget.Location = new Point(20, 82);
-            _txtTarget.Location = new Point(20, 102);
+            _cmbTarget.Location = new Point(20, 102);
             lblMinutes.Location = new Point(20, 148);
             _minutesPanel.Location = new Point(20, 168);
             _lblPreview.Location = new Point(20, 262);
@@ -2005,9 +2014,49 @@ internal static class Program
             btnCancel.Location = new Point(210, 336);
             btnCancel.Size = new Size(90, 40);
 
-            Controls.AddRange(new Control[] { title, lblRemaining, lblTarget, _txtTarget, lblMinutes, _minutesPanel, _lblPreview, _lblError, btnShare, btnCancel });
+            Controls.AddRange(new Control[] { title, lblRemaining, lblTarget, _cmbTarget, lblMinutes, _minutesPanel, _lblPreview, _lblError, btnShare, btnCancel });
 
+            Load += async (_, _) => await LoadUsersAsync();
             BuildMinutesPanel();
+        }
+
+        private void UpdatePreview()
+        {
+            _targetName = _cmbTarget.Text.Trim();
+            if (_selectedMinutes <= 0)
+            {
+                _lblPreview.Text = "";
+                return;
+            }
+            _lblPreview.Text = _targetName.Length > 0
+                ? $"{FmtMinutes(_selectedMinutes)} → {_targetName}"
+                : FmtMinutes(_selectedMinutes);
+            _lblError.Text = "";
+        }
+
+        private async Task LoadUsersAsync()
+        {
+            try
+            {
+                using var resp = await _controller.Http.GetAsync("api/users");
+                if (!resp.IsSuccessStatusCode) return;
+                var users = await resp.Content.ReadFromJsonAsync<List<UserNameRow>>();
+                if (users is null) return;
+                var giver = _controller.CurrentPlayer?.Name;
+                var names = users
+                    .Select(u => u.Name)
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Where(n => string.IsNullOrEmpty(giver) || !n.Equals(giver, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                _cmbTarget.BeginUpdate();
+                _cmbTarget.Items.AddRange(names);
+                _cmbTarget.EndUpdate();
+            }
+            catch
+            {
+            }
         }
 
         private void BuildMinutesPanel()
@@ -2050,17 +2099,13 @@ internal static class Program
         private void SelectMinutes(int minutes)
         {
             _selectedMinutes = minutes;
-            _targetName = _txtTarget.Text.Trim();
-            _lblPreview.Text = _targetName.Length > 0
-                ? $"{FmtMinutes(minutes)} → {_targetName}"
-                : FmtMinutes(minutes);
-            _lblError.Text = "";
+            UpdatePreview();
         }
 
         private async Task ConfirmAsync()
         {
             var userId = _controller.CurrentUserId;
-            _targetName = _txtTarget.Text.Trim();
+            _targetName = _cmbTarget.Text.Trim();
             if (string.IsNullOrEmpty(userId))
             {
                 _lblError.Text = "No player signed in";

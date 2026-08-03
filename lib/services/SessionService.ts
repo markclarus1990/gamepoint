@@ -161,6 +161,19 @@ export class SessionService {
       return { error: `Station is occupied by ${occupant.user_name}` };
     }
 
+    const alreadyActive = await this.sessionRepo.findActiveForUser(userId);
+    if (alreadyActive && alreadyActive.station_name !== stationName) {
+      const left = Math.max(
+        0,
+        Math.floor(
+          ((new Date(alreadyActive.ends_at ?? 0).getTime() - Date.now()) / 1000) / 60
+        )
+      );
+      return {
+        error: `Already playing on ${alreadyActive.station_name} (${left} min left)`,
+      };
+    }
+
     let minutes = 0;
     let pointsUsed = 0;
     let gfundsUsed = 0;
@@ -345,6 +358,7 @@ export class SessionService {
         remaining_seconds: number;
         target_credit: number;
         target_session_seconds: number | null;
+        target_station: string | null;
       }
   > {
     if (!Number.isInteger(params.minutes) || params.minutes <= 0) {
@@ -381,43 +395,61 @@ export class SessionService {
       return { error: "Cannot share time with yourself" };
     }
 
-    const newEndsAt = new Date(
-      new Date(active.ends_at).getTime() - params.minutes * 60 * 1000
-    );
-    await this.sessionRepo.updateEndsAt(active.id, newEndsAt.toISOString());
-
     const targetSession = await this.sessionRepo.findActiveForUser(target.id);
-    if (targetSession) {
-      const baseMs = Math.max(
-        targetSession.ends_at
-          ? new Date(targetSession.ends_at).getTime()
-          : Date.now(),
-        Date.now()
-      );
-      const targetEndsAt = new Date(baseMs + params.minutes * 60 * 1000);
-      await this.sessionRepo.updateEndsAt(
-        targetSession.id,
-        targetEndsAt.toISOString()
-      );
+    let targetEndsAt: Date | null = null;
 
+    try {
+      if (targetSession) {
+        const baseMs = Math.max(
+          targetSession.ends_at
+            ? new Date(targetSession.ends_at).getTime()
+            : Date.now(),
+          Date.now()
+        );
+        targetEndsAt = new Date(baseMs + params.minutes * 60 * 1000);
+        await this.sessionRepo.updateEndsAt(
+          targetSession.id,
+          targetEndsAt.toISOString()
+        );
+      } else {
+        await this.userRepo.addTimeCreditById(target.id, params.minutes);
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to add time to target";
+      return { error: `Share cancelled: ${message}` };
+    }
+
+    try {
+      const newEndsAt = new Date(
+        new Date(active.ends_at).getTime() - params.minutes * 60 * 1000
+      );
+      await this.sessionRepo.updateEndsAt(active.id, newEndsAt.toISOString());
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to deduct shared time";
+      return { error: message };
+    }
+
+    if (targetSession) {
       return {
         success: true,
         remaining_seconds: Math.max(0, remaining - params.minutes * 60),
         target_credit: target.time_credit_minutes ?? 0,
         target_session_seconds: Math.max(
           0,
-          Math.floor((targetEndsAt.getTime() - Date.now()) / 1000)
+          Math.floor(((targetEndsAt ?? new Date()).getTime() - Date.now()) / 1000)
         ),
+        target_station: targetSession.station_name ?? null,
       };
     }
-
-    await this.userRepo.addTimeCreditById(target.id, params.minutes);
 
     return {
       success: true,
       remaining_seconds: Math.max(0, remaining - params.minutes * 60),
       target_credit: (target.time_credit_minutes ?? 0) + params.minutes,
       target_session_seconds: null,
+      target_station: null,
     };
   }
 
@@ -562,6 +594,13 @@ export class SessionService {
     const occupant = await this.sessionRepo.findActiveByStation(stationName);
     if (occupant && occupant.user_id !== userId) {
       return { error: `Station is occupied by ${occupant.user_name}` };
+    }
+
+    const alreadyActive = await this.sessionRepo.findActiveForUser(userId);
+    if (alreadyActive && alreadyActive.station_name !== stationName) {
+      return {
+        error: `Already playing on ${alreadyActive.station_name} — log out there first`,
+      };
     }
 
     await this.sessionRepo.discardPausedForUser(userId);
