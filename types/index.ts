@@ -40,6 +40,8 @@ export interface Station {
   command_at?: string | null;
   screenshot_url?: string | null;
   screenshot_at?: string | null;
+  remote_control?: boolean | null;
+  controlled_at?: string | null;
 }
 
 export interface RedeemRequest {

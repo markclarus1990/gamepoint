@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   Loader2,
   Monitor,
@@ -1208,7 +1208,19 @@ function ScreenshotModal({
 }) {
   const [requesting, setRequesting] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const live = stations.find((s) => s.id === station.id) ?? station;
+  const [controlling, setControlling] = useState(false);
+  const [controlText, setControlText] = useState("");
+  const [lastClick, setLastClick] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  const [localStations, setLocalStations] = useState(stations);
+  const controllingRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const live = localStations.find((s) => s.id === station.id) ?? station;
   const imgUrl = live.screenshot_url;
   const shotAt = live.screenshot_at;
   const age = shotAt ? Math.floor((Date.now() - new Date(shotAt).getTime()) / 1000) : null;
@@ -1216,6 +1228,35 @@ function ScreenshotModal({
 
   useEffect(() => {
     let alive = true;
+
+    if (controlling) {
+      let tick = 0;
+      const iv = setInterval(async () => {
+        try {
+          const res = await fetch("/api/stations");
+          const data = await res.json();
+          if (alive) setLocalStations(data.stations || []);
+        } catch {
+          /* keep polling */
+        }
+        tick += 1;
+        if (alive && tick % 2 === 0) {
+          try {
+            await fetch("/api/stations/command", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ids: [station.id], command: "screenshot" }),
+            });
+          } catch {
+            /* keep polling */
+          }
+        }
+      }, 2000);
+      return () => {
+        alive = false;
+        clearInterval(iv);
+      };
+    }
 
     const requestShot = async () => {
       if (!alive) return;
@@ -1241,7 +1282,107 @@ function ScreenshotModal({
       clearInterval(iv);
       clearTimeout(timeout);
     };
+  }, [controlling, station.id]);
+
+  useEffect(() => {
+    return () => {
+      if (controllingRef.current) {
+        void fetch("/api/stations/control", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [station.id], action: "stop" }),
+        }).catch(() => {});
+      }
+    };
   }, [station.id]);
+
+  const toggleControl = async () => {
+    const action = controlling ? "stop" : "start";
+    try {
+      const res = await fetch("/api/stations/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [station.id], action }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+    } catch {
+      setError("Cannot reach the server");
+      return;
+    }
+    setControlling(action === "start");
+    controllingRef.current = action === "start";
+    setRequesting(false);
+    setError(null);
+  };
+
+  const imgPoint = (e: { clientX: number; clientY: number }) => {
+    const img = imgRef.current;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return null;
+    const rect = img.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return {
+      x: Math.round((e.clientX - rect.left) * (img.naturalWidth / rect.width)),
+      y: Math.round(
+        (e.clientY - rect.top) * (img.naturalHeight / rect.height)
+      ),
+      w: img.naturalWidth,
+      h: img.naturalHeight,
+    };
+  };
+
+  const sendEvent = async (event: unknown) => {
+    try {
+      await fetch("/api/stations/control/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stationId: station.id, event }),
+      });
+    } catch {
+      /* drop — the next action will retry */
+    }
+  };
+
+  const onImgMouseDown = (e: ReactMouseEvent) => {
+    if (!controlling) return;
+    if (e.button !== 0 && e.button !== 2) return;
+    const p = imgPoint(e);
+    if (!p) return;
+    dragStartRef.current = p;
+    setLastClick(p);
+    void sendEvent({
+      type: "click",
+      x: p.x,
+      y: p.y,
+      button: e.button === 2 ? "right" : "left",
+    });
+  };
+
+  const onImgMouseUp = (e: ReactMouseEvent) => {
+    if (!controlling) return;
+    const start = dragStartRef.current;
+    const p = imgPoint(e);
+    dragStartRef.current = null;
+    if (!start || !p) return;
+    if (Math.abs(p.x - start.x) > 6 || Math.abs(p.y - start.y) > 6) {
+      void sendEvent({ type: "drag", x1: start.x, y1: start.y, x2: p.x, y2: p.y });
+    }
+  };
+
+  const onImgWheel = (e: ReactWheelEvent) => {
+    if (!controlling) return;
+    void sendEvent({ type: "scroll", delta: e.deltaY > 0 ? 1 : -1 });
+  };
+
+  const sendText = () => {
+    const t = controlText;
+    if (!t) return;
+    setControlText("");
+    void sendEvent({ type: "text", text: t });
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center">
@@ -1289,12 +1430,25 @@ function ScreenshotModal({
               </span>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-zinc-400 hover:bg-zinc-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleControl}
+              disabled={!live.online}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                controlling
+                  ? "bg-red-600 hover:bg-red-500 text-white"
+                  : "bg-emerald-600/80 hover:bg-emerald-500/80 text-white"
+              }`}
+            >
+              {controlling ? "Stop control" : "Control"}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg text-zinc-400 hover:bg-zinc-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="relative bg-black/40 min-h-[240px] flex-1 flex items-center justify-center overflow-hidden">
@@ -1311,11 +1465,29 @@ function ScreenshotModal({
               {error && <div className="text-xs text-red-400">{error}</div>}
             </div>
           ) : (
-            <img
-              src={`${imgUrl}?t=${encodeURIComponent(shotAt || Date.now())}`}
-              alt={`${live.name} screen`}
-              className="w-full h-auto max-h-[70vh] object-contain"
-            />
+            <div
+              className={`relative max-w-full ${controlling ? "cursor-crosshair" : ""}`}
+              onMouseDown={onImgMouseDown}
+              onMouseUp={onImgMouseUp}
+              onWheel={onImgWheel}
+            >
+              <img
+                ref={imgRef}
+                src={`${imgUrl}?t=${encodeURIComponent(shotAt || Date.now())}`}
+                alt={`${live.name} screen`}
+                className="w-full h-auto max-h-[70vh] object-contain select-none"
+                draggable={false}
+              />
+              {controlling && lastClick && (
+                <div
+                  className="absolute w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow pointer-events-none -translate-x-1/2 -translate-y-1/2"
+                  style={{
+                    left: `${(lastClick.x / lastClick.w) * 100}%`,
+                    top: `${(lastClick.y / lastClick.h) * 100}%`,
+                  }}
+                />
+              )}
+            </div>
           )}
         </div>
 
@@ -1345,6 +1517,55 @@ function ScreenshotModal({
             </a>
           )}
         </div>
+
+        {controlling && (
+          <div className="flex flex-col gap-2 px-4 sm:px-5 py-3 border-t border-white/5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {["Enter", "Esc", "Tab", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].map((k) => (
+                <button
+                  key={k}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    void sendEvent({ type: "key", key: k });
+                  }}
+                  className="px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 transition-colors"
+                >
+                  {k === "ArrowUp"
+                    ? "↑"
+                    : k === "ArrowDown"
+                      ? "↓"
+                      : k === "ArrowLeft"
+                        ? "←"
+                        : k === "ArrowRight"
+                          ? "→"
+                          : k === "Backspace"
+                            ? "⌫"
+                            : k}
+                </button>
+              ))}
+              <span className="ml-auto text-[10px] text-zinc-500 uppercase tracking-wide">
+                click screen to control
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                value={controlText}
+                onChange={(e) => setControlText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") sendText();
+                }}
+                placeholder="Type text, then press Enter…"
+                className="flex-1 min-w-0 bg-zinc-800/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 outline-none focus:border-pink-500/60"
+              />
+              <button
+                onClick={sendText}
+                className="px-3 py-2 rounded-lg text-xs font-semibold bg-pink-600 hover:bg-pink-500 text-white transition-colors"
+              >
+                Send text
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

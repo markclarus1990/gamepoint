@@ -648,6 +648,7 @@ export class SessionService {
         user_avatar: string | null;
         user_time_credit: number | null;
         pending_command: string | null;
+        remote_control: boolean;
       }
   > {
     const station = await this.stationRepo.findByKey(agentKey);
@@ -671,6 +672,7 @@ export class SessionService {
         user_avatar: null,
         user_time_credit: null,
         pending_command: station.command ?? null,
+        remote_control: station.remote_control ?? false,
       };
     }
 
@@ -694,6 +696,7 @@ export class SessionService {
       user_avatar: user?.avatar_url ?? null,
       user_time_credit: user?.time_credit_minutes ?? null,
       pending_command: station.command ?? null,
+      remote_control: station.remote_control ?? false,
     };
   }
 

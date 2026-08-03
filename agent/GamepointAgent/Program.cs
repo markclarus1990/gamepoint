@@ -3,6 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -40,6 +41,8 @@ internal static class Program
         public int? UserTimeCredit { get; set; }
         [JsonPropertyName("pending_command")]
         public string? PendingCommand { get; set; }
+        [JsonPropertyName("remote_control")]
+        public bool RemoteControl { get; set; }
     }
 
     private sealed class LoginUser
@@ -342,6 +345,10 @@ internal static class Program
         private CountdownForm? _countdownForm;
         private Status? _current;
         private DateTime _lockHeldUntil = DateTime.MinValue;
+        private bool _remoteControl;
+        private DateTime _lastControlShot = DateTime.MinValue;
+        private const int RemotePollMs = 1000;
+        private const int ControlShotThrottleMs = 1200;
 
         public HttpClient Http => _http;
         public string StationName => _cfg.StationName;
@@ -435,6 +442,26 @@ internal static class Program
                 catch (Exception ex)
                 {
                     Dbg($"ApplyStatus failed: {ex.Message}");
+                }
+
+                try
+                {
+                    if (st.RemoteControl != _remoteControl)
+                    {
+                        _remoteControl = st.RemoteControl;
+                        _pollTimer.Interval = _remoteControl
+                            ? RemotePollMs
+                            : Math.Max(5, _cfg.PollSeconds) * 1000;
+                        Dbg($"Remote control {(_remoteControl ? "ON" : "OFF")} — poll {_pollTimer.Interval}ms");
+                    }
+                    if (_remoteControl)
+                    {
+                        await HandleControlEventsAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Dbg($"Control handling failed: {ex.Message}");
                 }
             }
             catch
@@ -532,6 +559,271 @@ internal static class Program
             catch (Exception ex)
             {
                 Dbg($"Screenshot failed: {ex.Message}");
+            }
+        }
+
+        private async Task HandleControlEventsAsync()
+        {
+            JsonElement[] events;
+            using (var resp = await _http.GetAsync("api/agent/control"))
+            {
+                if (!resp.IsSuccessStatusCode) return;
+                var doc = await resp.Content.ReadFromJsonAsync<JsonElement>();
+                if (!doc.TryGetProperty("events", out var arr) ||
+                    arr.ValueKind != JsonValueKind.Array)
+                    return;
+                events = arr.EnumerateArray().ToArray();
+            }
+            if (events.Length == 0) return;
+
+            foreach (var ev in events)
+            {
+                try
+                {
+                    ApplyControlEvent(ev);
+                }
+                catch (Exception ex)
+                {
+                    Dbg($"Control event failed: {ex.Message}");
+                }
+            }
+
+            if (DateTime.Now - _lastControlShot >
+                TimeSpan.FromMilliseconds(ControlShotThrottleMs))
+            {
+                _lastControlShot = DateTime.Now;
+                await CaptureAndUploadScreenshotAsync();
+            }
+        }
+
+        private void ApplyControlEvent(JsonElement ev)
+        {
+            var type = ev.GetProperty("type").GetString();
+            switch (type)
+            {
+                case "click":
+                {
+                    var (x, y) = ToScreen(
+                        ev.GetProperty("x").GetInt32(),
+                        ev.GetProperty("y").GetInt32());
+                    var button = ev.TryGetProperty("button", out var b)
+                        ? b.GetString()
+                        : "left";
+                    NativeInput.Click(x, y, button ?? "left");
+                    break;
+                }
+                case "drag":
+                {
+                    var (x1, y1) = ToScreen(
+                        ev.GetProperty("x1").GetInt32(),
+                        ev.GetProperty("y1").GetInt32());
+                    var (x2, y2) = ToScreen(
+                        ev.GetProperty("x2").GetInt32(),
+                        ev.GetProperty("y2").GetInt32());
+                    NativeInput.Drag(x1, y1, x2, y2);
+                    break;
+                }
+                case "scroll":
+                    NativeInput.Scroll(ev.GetProperty("delta").GetInt32());
+                    break;
+                case "key":
+                {
+                    var key = ev.GetProperty("key").GetString() ?? "";
+                    NativeInput.PressKey(key);
+                    break;
+                }
+                case "text":
+                {
+                    var text = ev.GetProperty("text").GetString() ?? "";
+                    NativeInput.TypeText(text);
+                    break;
+                }
+            }
+        }
+
+        private static (int X, int Y) ToScreen(int imgX, int imgY)
+        {
+            var bounds = SystemInformation.VirtualScreen;
+            if (bounds.Width <= 0) return (imgX, imgY);
+            var scale = bounds.Width / 1280.0;
+            return (
+                bounds.X + (int)Math.Round(imgX * scale),
+                bounds.Y + (int)Math.Round(imgY * scale));
+        }
+
+        private static class NativeInput
+        {
+            private const uint InputMouse = 0;
+            private const uint InputKeyboard = 1;
+            private const int MouseEventLeftDown = 0x0002;
+            private const int MouseEventLeftUp = 0x0004;
+            private const int MouseEventRightDown = 0x0008;
+            private const int MouseEventRightUp = 0x0010;
+            private const int MouseEventWheel = 0x0800;
+            private const uint KeyEventKeyUp = 0x0002;
+            private const uint KeyEventUnicode = 0x0004;
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct Input
+            {
+                public uint type;
+                public InputUnion u;
+            }
+
+            [StructLayout(LayoutKind.Explicit)]
+            private struct InputUnion
+            {
+                [FieldOffset(0)] public MouseInput mi;
+                [FieldOffset(0)] public KeyboardInput ki;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct MouseInput
+            {
+                public int dx;
+                public int dy;
+                public uint mouseData;
+                public uint dwFlags;
+                public uint time;
+                public IntPtr dwExtraInfo;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct KeyboardInput
+            {
+                public ushort wVk;
+                public ushort wScan;
+                public uint dwFlags;
+                public uint time;
+                public IntPtr dwExtraInfo;
+            }
+
+            [DllImport("user32.dll")]
+            private static extern bool SetCursorPos(int x, int y);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            private static extern uint SendInput(
+                uint nInputs,
+                Input[] pInputs,
+                int cbSize);
+
+            private static void SendMouse(uint flags, uint data = 0)
+            {
+                var input = new Input
+                {
+                    type = InputMouse,
+                    u = new InputUnion
+                    {
+                        mi = new MouseInput { dwFlags = flags, mouseData = data }
+                    }
+                };
+                SendInput(1, new[] { input }, Marshal.SizeOf<Input>());
+            }
+
+            private static void SendKey(ushort vk, ushort scan, uint flags)
+            {
+                var input = new Input
+                {
+                    type = InputKeyboard,
+                    u = new InputUnion
+                    {
+                        ki = new KeyboardInput
+                        {
+                            wVk = vk,
+                            wScan = scan,
+                            dwFlags = flags
+                        }
+                    }
+                };
+                SendInput(1, new[] { input }, Marshal.SizeOf<Input>());
+            }
+
+            public static void Click(int x, int y, string button)
+            {
+                SetCursorPos(x, y);
+                var down = button == "right"
+                    ? MouseEventRightDown
+                    : MouseEventLeftDown;
+                var up = button == "right"
+                    ? MouseEventRightUp
+                    : MouseEventLeftUp;
+                SendMouse((uint)down);
+                Thread.Sleep(30);
+                SendMouse((uint)up);
+            }
+
+            public static void Drag(int x1, int y1, int x2, int y2)
+            {
+                SetCursorPos(x1, y1);
+                SendMouse(MouseEventLeftDown);
+                Thread.Sleep(30);
+                SetCursorPos(x2, y2);
+                Thread.Sleep(30);
+                SendMouse(MouseEventLeftUp);
+            }
+
+            public static void Scroll(int delta)
+            {
+                SendMouse(MouseEventWheel, (uint)(delta * 120));
+            }
+
+            public static void PressKey(string key)
+            {
+                var vk = VkForName(key);
+                if (vk == 0) return;
+                SendKey(vk, 0, 0);
+                SendKey(vk, 0, KeyEventKeyUp);
+            }
+
+            public static void TypeText(string text)
+            {
+                foreach (var ch in text)
+                {
+                    SendKey(0, ch, KeyEventUnicode);
+                    SendKey(0, ch, KeyEventUnicode | KeyEventKeyUp);
+                }
+            }
+
+            private static ushort VkForName(string key)
+            {
+                switch (key.ToLowerInvariant())
+                {
+                    case "enter": return 0x0D;
+                    case "esc":
+                    case "escape": return 0x1B;
+                    case "tab": return 0x09;
+                    case "backspace": return 0x08;
+                    case "space": return 0x20;
+                    case "delete":
+                    case "del": return 0x2E;
+                    case "home": return 0x24;
+                    case "end": return 0x23;
+                    case "pageup": return 0x21;
+                    case "pagedown": return 0x22;
+                    case "arrowup":
+                    case "up": return 0x26;
+                    case "arrowdown":
+                    case "down": return 0x28;
+                    case "arrowleft":
+                    case "left": return 0x25;
+                    case "arrowright":
+                    case "right": return 0x27;
+                }
+                if (key.Length == 1)
+                {
+                    var c = key[0];
+                    if (c >= 'a' && c <= 'z') return (ushort)(c - 'a' + 0x41);
+                    if (c >= 'A' && c <= 'Z') return (ushort)(c - 'A' + 0x41);
+                    if (c >= '0' && c <= '9') return (ushort)(c - '0' + 0x30);
+                }
+                if (key.StartsWith("f", StringComparison.OrdinalIgnoreCase) &&
+                    key.Length <= 3 &&
+                    int.TryParse(key.Substring(1), out var fn) &&
+                    fn >= 1 && fn <= 24)
+                {
+                    return (ushort)(0x6F + fn);
+                }
+                return 0;
             }
         }
 

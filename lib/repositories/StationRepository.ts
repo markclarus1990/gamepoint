@@ -81,4 +81,50 @@ export class StationRepository {
       .eq("id", id);
     if (error) throw error;
   }
+
+  async setRemoteControl(
+    ids: string[],
+    on: boolean,
+    all = false
+  ): Promise<void> {
+    if (all) {
+      const { data } = await supabase.from("stations").select("id");
+      ids = (data ?? []).map((s) => s.id);
+      if (ids.length === 0) return;
+    }
+    const { error } = await supabase
+      .from("stations")
+      .update({
+        remote_control: on,
+        controlled_at: on ? new Date().toISOString() : null,
+      })
+      .in("id", ids);
+    if (error) throw error;
+  }
+
+  async insertControlEvent(stationId: string, payload: unknown): Promise<void> {
+    const { error } = await supabase
+      .from("station_control_events")
+      .insert({ station_id: stationId, payload });
+    if (error) throw error;
+  }
+
+  async findControlEvents(stationId: string): Promise<{ id: string; payload: unknown }[]> {
+    const { data } = await supabase
+      .from("station_control_events")
+      .select("id, payload")
+      .eq("station_id", stationId)
+      .order("created_at", { ascending: true })
+      .limit(50);
+    return data || [];
+  }
+
+  async deleteControlEvents(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const { error } = await supabase
+      .from("station_control_events")
+      .delete()
+      .in("id", ids);
+    if (error) throw error;
+  }
 }
