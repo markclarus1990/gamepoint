@@ -276,6 +276,24 @@ export default function Admin() {
     notify(`Session ended on ${name}.`);
   };
 
+  const logoutStation = async (name: string) => {
+    if (
+      !confirm(
+        `Log out ${name}? The session will be paused (time saved) and the PC will lock.`
+      )
+    ) {
+      return;
+    }
+    const res = await fetch("/api/sessions/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ station_name: name }),
+    });
+    const data = await res.json();
+    loadStations();
+    notify(data.error || `${name} logged out — time saved.`);
+  };
+
   const openStationTime = async () => {
     if (!openStation || openMinutes <= 0) return;
     const res = await fetch("/api/sessions/open", {
@@ -596,6 +614,13 @@ export default function Admin() {
                           >
                             <Share2 className="w-3.5 h-3.5" />
                             Share
+                          </button>
+                          <button
+                            onClick={() => logoutStation(s.name)}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors"
+                          >
+                            <LogOut className="w-3.5 h-3.5" />
+                            Logout
                           </button>
                           <button
                             onClick={() => endStationSession(s.name)}
