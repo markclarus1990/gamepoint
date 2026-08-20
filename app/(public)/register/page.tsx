@@ -52,7 +52,8 @@ export default function Register() {
 
             <input
               type="password"
-              placeholder="PIN (4 digits)"
+              placeholder="PIN (4-24 characters)"
+              maxLength={24}
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-[#1e293b] border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"

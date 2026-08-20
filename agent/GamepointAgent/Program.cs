@@ -669,6 +669,58 @@ internal static class Program
             StringBuilder returnString,
             int returnLength);
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        private static void KillChromePlayingYoutube()
+        {
+            var procs = Process.GetProcessesByName("chrome");
+            if (procs.Length == 0) return;
+
+            var pids = new HashSet<uint>(procs.Select(p => (uint)p.Id));
+            var found = false;
+            EnumWindows((hWnd, _) =>
+            {
+                GetWindowThreadProcessId(hWnd, out var pid);
+                if (!pids.Contains(pid)) return true;
+                var sb = new StringBuilder(512);
+                GetWindowText(hWnd, sb, sb.Capacity);
+                if (sb.ToString().IndexOf("youtube", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    found = true;
+                    return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+
+            if (!found) return;
+            Dbg("YouTube detected in a Chrome window — killing chrome.exe");
+            try
+            {
+                var psi = new ProcessStartInfo("taskkill", "/IM chrome.exe /F")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var p = Process.Start(psi);
+                p?.WaitForExit(10000);
+                Dbg("chrome.exe killed");
+            }
+            catch (Exception ex)
+            {
+                Dbg($"Failed to kill chrome.exe: {ex.Message}");
+            }
+        }
+
         private static class NativeInput
         {
             private const uint InputMouse = 0;
@@ -1085,6 +1137,10 @@ internal static class Program
 
             if (st.Locked)
             {
+                if (!wasLocked)
+                {
+                    KillChromePlayingYoutube();
+                }
                 if (_lockForm is null || _lockForm.IsDisposed)
                 {
                     _lockForm = new LockForm(this);
@@ -1122,7 +1178,7 @@ internal static class Program
                     _countdownForm.Show();
                     _countdownForm.SetTime(st.RemainingSeconds);
                     _countdownForm.SetLabel(st.StationName, st.UserName);
-                    _countdownForm.SetBalances(st.UserPoints, st.UserGfunds, st.UserTimeCredit);
+                    _countdownForm.SetBalances(st.UserGfunds, st.UserPoints, st.UserTimeCredit);
                     _countdownForm.SetAvatar(st.UserAvatar);
                 }
                 else
@@ -2067,7 +2123,8 @@ internal static class Program
         {
             var h = totalSeconds / 3600;
             var m = (totalSeconds % 3600) / 60;
-            _label.Text = h > 0 ? $"{h} hr {m} min" : $"{m} min";
+            var s = totalSeconds % 60;
+            _label.Text = h > 0 ? $"{h} hr {m} min {s} sec" : m > 0 ? $"{m} min {s} sec" : $"{s} sec";
 
             if (totalSeconds > _lastSeconds + 30)
             {
@@ -2150,7 +2207,7 @@ internal static class Program
 
             var title = DarkLabel("Change PIN", 16, Color.White, true);
             var lblOld = DarkLabel("Current PIN", 10, Color.FromArgb(160, 160, 175));
-            var lblNew = DarkLabel("New PIN (4 digits)", 10, Color.FromArgb(160, 160, 175));
+            var lblNew = DarkLabel("New PIN (4-24 characters)", 10, Color.FromArgb(160, 160, 175));
             var lblConfirm = DarkLabel("Confirm New PIN", 10, Color.FromArgb(160, 160, 175));
             _txtOld = PinBox();
             _txtNew = PinBox();
@@ -2190,6 +2247,7 @@ internal static class Program
                 BorderStyle = BorderStyle.FixedSingle,
                 Font = F(12),
                 Size = new Size(280, 36),
+                MaxLength = 24,
                 PasswordChar = '•'
             };
         }
@@ -2198,9 +2256,9 @@ internal static class Program
         {
             var oldPin = _txtOld.Text;
             var newPin = _txtNew.Text;
-            if (newPin.Length != 4 || !newPin.All(char.IsDigit))
+            if (newPin.Length < 4 || newPin.Length > 24)
             {
-                _lblError.Text = "New PIN must be 4 digits";
+                _lblError.Text = "New PIN must be 4-24 characters";
                 return;
             }
             if (newPin != _txtConfirm.Text)

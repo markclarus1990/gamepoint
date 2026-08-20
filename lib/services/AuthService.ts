@@ -98,6 +98,10 @@ export class AuthService {
       return { error: "Missing fields", status: 400 };
     }
 
+    if (pin.length < 4 || pin.length > 24) {
+      return { error: "PIN must be 4-24 characters", status: 400 };
+    }
+
     const exists = await this.userRepo.existsByName(name);
     if (exists) {
       return { error: "User already exists", status: 400 };
@@ -141,8 +145,8 @@ export class AuthService {
       return { error: "Incorrect old PIN" };
     }
 
-    if (!newPin || newPin.length !== 4) {
-      return { error: "PIN must be 4 digits" };
+    if (!newPin || newPin.length < 4 || newPin.length > 24) {
+      return { error: "PIN must be 4-24 characters" };
     }
 
     try {

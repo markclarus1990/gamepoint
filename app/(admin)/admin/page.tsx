@@ -30,6 +30,7 @@ type User = {
   points: number;
   gfunds?: number;
   time_credit_minutes?: number;
+  remaining_seconds?: number;
 };
 
 type Session = {
@@ -330,7 +331,7 @@ export default function Admin() {
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
     const s = secs % 60;
-    return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+    return `${h > 0 ? `${h}h ` : ""}${m}m ${s}s`;
   };
 
   const timeAgo = (iso: string | null | undefined) => {
@@ -821,6 +822,12 @@ export default function Admin() {
                           <span className="text-teal-400">
                             {" "}
                             • {u.time_credit_minutes} free min
+                          </span>
+                        ) : null}
+                        {u.remaining_seconds ? (
+                          <span className="text-emerald-400">
+                            {" "}
+                            • {formatRemaining(u.remaining_seconds)} left
                           </span>
                         ) : null}
                       </div>

@@ -8,6 +8,11 @@ export default function ChangePassword() {
   const [newPin, setNewPin] = useState("");
 
   const handleChange = async () => {
+    if (newPin.length < 4 || newPin.length > 24) {
+      toast.error("PIN must be 4-24 characters");
+      return;
+    }
+
     const stored = JSON.parse(localStorage.getItem("user") ?? "{}");
 
     const res = await fetch("/api/change-password", {
@@ -42,6 +47,7 @@ export default function ChangePassword() {
         <input
           type="password"
           placeholder="Old PIN"
+          maxLength={24}
           value={oldPin}
           onChange={(e) => setOldPin(e.target.value)}
           className="w-full p-3 rounded bg-gray-800"
@@ -49,7 +55,8 @@ export default function ChangePassword() {
 
         <input
           type="password"
-          placeholder="New PIN (4 digits)"
+          placeholder="New PIN (4-24 characters)"
+          maxLength={24}
           value={newPin}
           onChange={(e) => setNewPin(e.target.value)}
           className="w-full p-3 rounded bg-gray-800"
