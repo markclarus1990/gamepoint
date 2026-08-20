@@ -4,25 +4,47 @@ import type { User } from "@/types";
 
 const userService = new UserService();
 
-async function attachRemaining(users: User[]): Promise<(User & { remaining_seconds?: number })[]> {
+async function attachRemaining(
+  users: User[]
+): Promise<(User & { remaining_seconds?: number; total_available_seconds?: number })[]> {
   if (users.length === 0) return users;
 
-  const sessions = await new SessionRepository().findAllActive();
-  const remainingByUser = new Map<string, number>();
+  const repo = new SessionRepository();
+  const [active, paused] = await Promise.all([
+    repo.findAllActive(),
+    repo.findAllPaused(),
+  ]);
 
-  for (const s of sessions) {
+  const remainingByUser = new Map<string, number>();
+  for (const s of active) {
     if (!s.user_id || !s.ends_at) continue;
     const remaining = Math.max(
       0,
       Math.floor((new Date(s.ends_at).getTime() - Date.now()) / 1000)
     );
-    if (remaining > 0) remainingByUser.set(s.user_id, remaining);
+    const cur = remainingByUser.get(s.user_id) ?? 0;
+    if (remaining > cur) remainingByUser.set(s.user_id, remaining);
   }
 
-  return users.map((u) => ({
-    ...u,
-    remaining_seconds: remainingByUser.get(u.id),
-  }));
+  const pausedByUser = new Map<string, number>();
+  for (const s of paused) {
+    if (!s.user_id) continue;
+    const secs = s.resume_seconds ?? 0;
+    if (secs <= 0) continue;
+    const cur = pausedByUser.get(s.user_id) ?? 0;
+    if (secs > cur) pausedByUser.set(s.user_id, secs);
+  }
+
+  return users.map((u) => {
+    const remaining = remainingByUser.get(u.id) ?? 0;
+    const pausedSeconds = pausedByUser.get(u.id) ?? 0;
+    const credit = (u.time_credit_minutes ?? 0) * 60;
+    return {
+      ...u,
+      remaining_seconds: remaining || undefined,
+      total_available_seconds: remaining + pausedSeconds + credit || undefined,
+    };
+  });
 }
 
 export async function GET(req: Request) {

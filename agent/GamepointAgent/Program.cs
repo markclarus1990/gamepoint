@@ -7,6 +7,8 @@ using System.Runtime.InteropServices;
 using StringBuilder = System.Text.StringBuilder;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 
 namespace GamepointAgent;
 
@@ -353,6 +355,7 @@ internal static class Program
         private const int ControlShotThrottleMs = 1200;
         private string _soundsDir = "";
         private static readonly int[] FallbackAnnounceMinutes = new[] { 10, 3, 1 };
+        private readonly MediaPlayer _announcer = new();
 
         public HttpClient Http => _http;
         public string StationName => _cfg.StationName;
@@ -655,19 +658,6 @@ internal static class Program
                 bounds.X + (int)Math.Round(imgX * scale),
                 bounds.Y + (int)Math.Round(imgY * scale));
         }
-
-        [DllImport("winmm.dll")]
-        private static extern int mciSendString(
-            string command,
-            StringBuilder returnString,
-            int returnLength,
-            IntPtr hwndCallback);
-
-        [DllImport("winmm.dll")]
-        private static extern int mciGetErrorString(
-            int error,
-            StringBuilder returnString,
-            int returnLength);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -1022,52 +1012,31 @@ internal static class Program
                 }
                 try
                 {
-                    var result = MciPlay(local);
-                    if (result == 0)
+                    if (!IsHandleCreated)
                     {
-                        Dbg($"Announcement played: {minutes} min");
+                        Dbg("Announcement skipped: UI not ready");
+                        return;
                     }
-                    else
+                    BeginInvoke(() =>
                     {
-                        Dbg($"Announcement play failed: {MciError(result)}");
-                    }
+                        try
+                        {
+                            _announcer.Pause();
+                            _announcer.Source = MediaSource.CreateFromUri(new Uri(local));
+                            _announcer.Play();
+                            Dbg($"Announcement played: {minutes} min");
+                        }
+                        catch (Exception ex)
+                        {
+                            Dbg($"Announcement play failed: {ex.Message}");
+                        }
+                    });
                 }
                 catch (Exception ex)
                 {
                     Dbg($"Announcement play failed: {ex.Message}");
                 }
             });
-        }
-
-        private static int MciPlay(string path)
-        {
-            var sb = new StringBuilder(256);
-            mciSendString("close gp_snd", sb, sb.Capacity, IntPtr.Zero);
-            var result = mciSendString(
-                $"open \"{path}\" type mpegvideo alias gp_snd",
-                sb,
-                sb.Capacity,
-                IntPtr.Zero);
-            if (result != 0)
-            {
-                result = mciSendString(
-                    $"open \"{path}\" alias gp_snd",
-                    sb,
-                    sb.Capacity,
-                    IntPtr.Zero);
-            }
-            if (result == 0)
-            {
-                result = mciSendString("play gp_snd from 0", sb, sb.Capacity, IntPtr.Zero);
-            }
-            return result;
-        }
-
-        private static string MciError(int error)
-        {
-            var sb = new StringBuilder(512);
-            mciGetErrorString(error, sb, sb.Capacity);
-            return sb.ToString().Trim();
         }
 
         public async Task<(bool ok, int remainingSeconds)> LogoutAsync()

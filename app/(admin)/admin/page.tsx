@@ -31,6 +31,7 @@ type User = {
   gfunds?: number;
   time_credit_minutes?: number;
   remaining_seconds?: number;
+  total_available_seconds?: number;
 };
 
 type Session = {
@@ -824,10 +825,10 @@ export default function Admin() {
                             • {u.time_credit_minutes} free min
                           </span>
                         ) : null}
-                        {u.remaining_seconds ? (
+                        {u.total_available_seconds ? (
                           <span className="text-emerald-400">
                             {" "}
-                            • {formatRemaining(u.remaining_seconds)} left
+                            • {formatRemaining(u.total_available_seconds)} available
                           </span>
                         ) : null}
                       </div>
@@ -1017,6 +1018,11 @@ export default function Admin() {
               </span>
             </div>
 
+            <div className="text-sm text-teal-400">
+              Available time:{" "}
+              {formatRemaining(selectedUser.total_available_seconds || 0)}
+            </div>
+
             <input
               type="number"
               min={1}
@@ -1070,6 +1076,11 @@ export default function Admin() {
             <div className="text-sm text-zinc-400">
               Current: ₱{selectedUser.gfunds || 0} gfunds •{" "}
               {selectedUser.points || 0} pts
+            </div>
+
+            <div className="text-sm text-teal-400">
+              Available time:{" "}
+              {formatRemaining(selectedUser.total_available_seconds || 0)}
             </div>
 
             <div>

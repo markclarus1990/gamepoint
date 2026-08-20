@@ -76,6 +76,16 @@ export class SessionRepository {
     return data || [];
   }
 
+  async findAllPaused(): Promise<Session[]> {
+    const { data } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("status", "paused")
+      .gt("resume_seconds", 0)
+      .order("created_at", { ascending: false });
+    return data || [];
+  }
+
   async expireOverdue(): Promise<void> {
     const { error } = await supabase
       .from("sessions")
