@@ -124,7 +124,11 @@ export default function DashboardLayout({
                   onClick={() => setProfileOpen(!profileOpen)}
                   className="flex items-center gap-2 p-1 rounded-lg hover:bg-zinc-800 transition-colors"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden">
+                  <div 
+  className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden"
+  onClick={() => setProfileOpen(!profileOpen)}
+  style={{ cursor: 'pointer' }}
+>
                     {user?.avatar_url ? (
                       <img src={user.avatar_url} className="w-full h-full object-cover" />
                     ) : (
