@@ -1010,28 +1010,29 @@ internal static class Program
                     Dbg($"Announcement skipped: {file} not available");
                     return;
                 }
-                try
-                {
-                    if (!IsHandleCreated)
-                    {
-                        Dbg("Announcement skipped: UI not ready");
-                        return;
-                    }
-                    BeginInvoke(() =>
-                    {
-                        try
+try
                         {
-                            _announcer.Pause();
-                            _announcer.Source = MediaSource.CreateFromUri(new Uri(local));
-                            _announcer.Play();
-                            Dbg($"Announcement played: {minutes} min");
+                            if (!IsHandleCreated)
+                            {
+                                Dbg("Announcement skipped: UI not ready");
+                                return;
+                            }
+                            BeginInvoke(() =>
+                            {
+                                try
+                                {
+                                    _announcer.Volume = 0.02;
+                                    _announcer.Pause();
+                                    _announcer.Source = MediaSource.CreateFromUri(new Uri(local));
+                                    _announcer.Play();
+                                    Dbg($"Announcement played: {minutes} min");
+                                }
+                                catch (Exception ex)
+                                {
+                                    Dbg($"Announcement play failed: {ex.Message}");
+                                }
+                            });
                         }
-                        catch (Exception ex)
-                        {
-                            Dbg($"Announcement play failed: {ex.Message}");
-                        }
-                    });
-                }
                 catch (Exception ex)
                 {
                     Dbg($"Announcement play failed: {ex.Message}");
