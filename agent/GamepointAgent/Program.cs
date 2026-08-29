@@ -1021,7 +1021,7 @@ try
                             {
                                 try
                                 {
-                                    _announcer.Volume = 0.02;
+                                    _announcer.Volume = 0.05;
                                     _announcer.Pause();
                                     _announcer.Source = MediaSource.CreateFromUri(new Uri(local));
                                     _announcer.Play();
@@ -2164,6 +2164,7 @@ try
         private readonly TextBox _txtNew;
         private readonly TextBox _txtConfirm;
         private readonly Label _lblError;
+        private readonly Button _btnSave;
 
         public ChangePinForm(HttpClient http, string userId)
         {
@@ -2184,9 +2185,9 @@ try
             _txtConfirm = PinBox();
             _lblError = DarkLabel("", 10, C(COLOR_ERROR));
             _lblError.MaximumSize = new Size(280, 50);
-            var btnSave = DarkButton("Save", COLOR_ACCENT);
-            MakeGradientButton(btnSave);
-            btnSave.Click += async (_, _) => await SaveAsync();
+            _btnSave = DarkButton("Save", COLOR_ACCENT);
+            MakeGradientButton(_btnSave);
+            _btnSave.Click += async (_, _) => await SaveAsync();
             var btnCancel = DarkButton("Cancel", "#334155");
             RoundButton(btnCancel, 10);
             btnCancel.Click += (_, _) => Close();
@@ -2200,12 +2201,12 @@ try
             lblConfirm.Location = new Point(20, 204);
             _txtConfirm.Location = new Point(20, 224);
             _lblError.Location = new Point(20, 268);
-            btnSave.Location = new Point(20, 322);
-            btnSave.Size = new Size(180, 38);
+            _btnSave.Location = new Point(20, 322);
+            _btnSave.Size = new Size(180, 38);
             btnCancel.Location = new Point(210, 322);
             btnCancel.Size = new Size(90, 38);
 
-            Controls.AddRange(new Control[] { title, lblOld, _txtOld, lblNew, _txtNew, lblConfirm, _txtConfirm, _lblError, btnSave, btnCancel });
+            Controls.AddRange(new Control[] { title, lblOld, _txtOld, lblNew, _txtNew, lblConfirm, _txtConfirm, _lblError, _btnSave, btnCancel });
         }
 
         private static TextBox PinBox()
@@ -2238,6 +2239,7 @@ try
             }
 
             _lblError.Text = "Saving...";
+            _btnSave.Enabled = false;
             try
             {
                 using var resp = await _http.PostAsJsonAsync("api/change-password", new { user_id = _userId, oldPin, newPin });
@@ -2254,6 +2256,10 @@ try
             {
                 _lblError.Text = "Cannot reach the server";
             }
+            finally
+            {
+                _btnSave.Enabled = true;
+            }
         }
     }
 
@@ -2265,6 +2271,7 @@ try
         private readonly FlowLayoutPanel _amountPanel;
         private readonly Label _lblTime;
         private readonly Label _lblError;
+        private readonly Button _btnSave;
         private NumericUpDown? _numCustom;
         private string _payment = "points";
         private int _selectedAmount;
@@ -2301,9 +2308,9 @@ try
             _lblTime = DarkLabel("", 12, C(COLOR_GREEN), true);
             _lblError = DarkLabel("", 10, C(COLOR_ERROR));
             _lblError.MaximumSize = new Size(280, 40);
-            var btnSave = DarkButton("Add Time", COLOR_ACCENT);
-            MakeGradientButton(btnSave);
-            btnSave.Click += async (_, _) => await ConfirmAsync();
+            _btnSave = DarkButton("Add Time", COLOR_ACCENT);
+            MakeGradientButton(_btnSave);
+            _btnSave.Click += async (_, _) => await ConfirmAsync();
             var btnCancel = DarkButton("Cancel", "#334155");
             RoundButton(btnCancel, 10);
             btnCancel.Click += (_, _) => Close();
@@ -2319,12 +2326,12 @@ try
             _amountPanel.Location = new Point(20, 168);
             _lblTime.Location = new Point(20, 262);
             _lblError.Location = new Point(20, 288);
-            btnSave.Location = new Point(20, 336);
-            btnSave.Size = new Size(180, 40);
+            _btnSave.Location = new Point(20, 336);
+            _btnSave.Size = new Size(180, 40);
             btnCancel.Location = new Point(210, 336);
             btnCancel.Size = new Size(90, 40);
 
-            Controls.AddRange(new Control[] { title, lblBalances, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _lblError, btnSave, btnCancel });
+            Controls.AddRange(new Control[] { title, lblBalances, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _lblError, _btnSave, btnCancel });
 
             SetPayment("points");
         }
@@ -2399,6 +2406,7 @@ try
             }
 
             _lblError.Text = "Adding time...";
+            _btnSave.Enabled = false;
             try
             {
                 using var resp = await _controller.Http.PostAsJsonAsync("api/sessions/add-time", new
@@ -2422,6 +2430,10 @@ try
             {
                 _lblError.Text = "Cannot reach the server";
             }
+            finally
+            {
+                _btnSave.Enabled = true;
+            }
         }
     }
 
@@ -2432,6 +2444,7 @@ try
         private readonly FlowLayoutPanel _minutesPanel;
         private readonly Label _lblPreview;
         private readonly Label _lblError;
+        private readonly Button _btnShare;
         private NumericUpDown? _numCustom;
         private int _selectedMinutes;
         private string _targetName = "";
@@ -2475,9 +2488,9 @@ try
             _lblPreview = DarkLabel("", 12, Color.White, true);
             _lblError = DarkLabel("", 10, C(COLOR_ERROR));
             _lblError.MaximumSize = new Size(280, 40);
-            var btnShare = DarkButton("Share", COLOR_ACCENT);
-            MakeGradientButton(btnShare, Color.FromArgb(13, 148, 136), Color.FromArgb(5, 150, 105));
-            btnShare.Click += async (_, _) => await ConfirmAsync();
+            _btnShare = DarkButton("Share", COLOR_ACCENT);
+            MakeGradientButton(_btnShare, Color.FromArgb(13, 148, 136), Color.FromArgb(5, 150, 105));
+            _btnShare.Click += async (_, _) => await ConfirmAsync();
             var btnCancel = DarkButton("Cancel", "#334155");
             RoundButton(btnCancel, 10);
             btnCancel.Click += (_, _) => Close();
@@ -2499,12 +2512,12 @@ try
             _minutesPanel.Location = new Point(20, 168);
             _lblPreview.Location = new Point(20, 262);
             _lblError.Location = new Point(20, 288);
-            btnShare.Location = new Point(20, 336);
-            btnShare.Size = new Size(180, 40);
+            _btnShare.Location = new Point(20, 336);
+            _btnShare.Size = new Size(180, 40);
             btnCancel.Location = new Point(210, 336);
             btnCancel.Size = new Size(90, 40);
 
-            Controls.AddRange(new Control[] { title, lblRemaining, lblTarget, _cmbTarget, lblMinutes, _minutesPanel, _lblPreview, _lblError, btnShare, btnCancel });
+            Controls.AddRange(new Control[] { title, lblRemaining, lblTarget, _cmbTarget, lblMinutes, _minutesPanel, _lblPreview, _lblError, _btnShare, btnCancel });
 
             Load += async (_, _) => await LoadUsersAsync();
             BuildMinutesPanel();
@@ -2613,6 +2626,7 @@ try
             }
 
             _lblError.Text = "Sharing...";
+            _btnShare.Enabled = false;
             try
             {
                 using var resp = await _controller.Http.PostAsJsonAsync("api/sessions/share", new
@@ -2633,6 +2647,10 @@ try
             catch
             {
                 _lblError.Text = "Cannot reach the server";
+            }
+            finally
+            {
+                _btnShare.Enabled = true;
             }
         }
     }
