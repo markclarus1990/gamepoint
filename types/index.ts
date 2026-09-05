@@ -240,3 +240,60 @@ export interface ProductPurchase {
   products?: Product;
   users?: { name: string };
 }
+
+export interface ActivityLogEntry {
+  id: string;
+  actor_id: string | null;
+  actor_name: string;
+  actor_role: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface FundLedgerEntry {
+  id: string;
+  user_id: string;
+  type: string;
+  amount: number;
+  balance_before: number;
+  balance_after: number;
+  reference_type: string | null;
+  reference_id: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export interface IncomeBreakdownRow {
+  date: string;
+  load_count: number;
+  total: number;
+  deduct_count: number;
+  deducted: number;
+}
+
+export interface IncomeReportSummary {
+  total_loaded: number;
+  load_count: number;
+  unique_players: number;
+  total_deducted: number;
+  deduct_count: number;
+}
+
+export interface IncomeTopUser {
+  name: string;
+  total: number;
+  load_count: number;
+}
+
+export interface IncomeRecentLoad {
+  type: "admin_load" | "admin_deduct";
+  player: string;
+  amount: number;
+  balance_before: number;
+  balance_after: number;
+  description: string | null;
+  created_at: string;
+}

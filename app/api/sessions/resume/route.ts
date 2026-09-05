@@ -1,6 +1,10 @@
 import { SessionService } from "@/lib/services/SessionService";
+import { UserRepository } from "@/lib/repositories/UserRepository";
+import { ActivityLogService } from "@/lib/services/ActivityLogService";
 
 const sessionService = new SessionService();
+const userRepo = new UserRepository();
+const activityLog = new ActivityLogService();
 
 export async function GET(req: Request) {
   const userId = new URL(req.url).searchParams.get("user_id");
@@ -26,6 +30,16 @@ export async function POST(req: Request) {
   if ("error" in result) {
     return Response.json({ error: result.error }, { status: 400 });
   }
+
+  let actorName = "unknown";
+  try {
+    const u = await userRepo.findById(user_id);
+    if (u?.name) actorName = u.name;
+  } catch {
+    // ignore
+  }
+
+  void activityLog.logSessionResume(actorName, station_name);
 
   return Response.json(result);
 }

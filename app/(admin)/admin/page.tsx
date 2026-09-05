@@ -22,6 +22,11 @@ import {
   LogOut,
   Download,
   Share2,
+  Activity,
+  Play,
+  Square,
+  Minus,
+  Wallet,
 } from "lucide-react";
 
 type User = {
@@ -73,7 +78,283 @@ type Station = {
   user_avatar?: string | null;
 };
 
-type Tab = "stations" | "requests" | "shop" | "users" | "history";
+type Tab = "stations" | "requests" | "shop" | "users" | "history" | "activity";
+
+type ActivityLogEntry = {
+  id: string;
+  actor_id: string | null;
+  actor_name: string;
+  actor_role: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type LedgerRow = {
+  id: string;
+  type: string;
+  amount: number;
+  balance_before: number;
+  balance_after: number;
+  description: string | null;
+  created_at: string;
+};
+
+type TimelineItem = {
+  source: "activity" | "point_ledger" | "fund_ledger" | "session";
+  entry: Record<string, unknown>;
+  created_at: string;
+};
+
+type PlayerHistoryData = {
+  user: { id: string; name: string; points: number; gfunds: number };
+  point_ledger: { data: LedgerRow[]; total: number };
+  fund_ledger: { data: LedgerRow[]; total: number };
+  sessions: { data: Session[]; totalMinutes: number };
+  redeems: { data: Redeem[]; total: number };
+  activity_log: { data: ActivityLogEntry[] };
+  timeline?: TimelineItem[];
+  summary: {
+    total_points_earned: number;
+    total_points_spent: number;
+    total_gfunds_loaded: number;
+    total_gfunds_deducted: number;
+    total_session_minutes: number;
+  };
+};
+
+type IconComponent = React.ComponentType<{ className?: string }>;
+
+type FormattedEvent = {
+  Icon: IconComponent;
+  color: string;
+  title: string;
+  subtitle: string;
+};
+
+// Human-readable rendering for an activity_log row:
+// shows who did what, where it came from and where it went.
+function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
+  const d = (log.details ?? {}) as Record<string, unknown>;
+  const num = (v: unknown) => Number(v) || 0;
+  const str = (v: unknown) => String(v ?? "");
+  const target = str(log.target_id);
+
+  switch (log.action) {
+    case "session_share": {
+      const mins = num(d.minutes);
+      const station = str(d.source_station);
+      return {
+        Icon: Share2,
+        color: "text-sky-400 bg-sky-500/10",
+        title: `Shared ${mins} mins → ${target || "?"}`,
+        subtitle: `From ${log.actor_name}${station ? ` (${station})` : ""}`,
+      };
+    }
+    case "session_start": {
+      const station = str(d.station || d.source_station);
+      const payment = str(d.payment);
+      const g = num(d.gfundsUsed ?? d.gfunds_used);
+      const p = num(d.pointsUsed ?? d.points_used);
+      const amt = num(d.amount);
+      const paid =
+        payment === "gfunds" && g > 0
+          ? `₱${g} gfunds`
+          : payment === "points" && p > 0
+            ? `${p} pts`
+            : amt > 0
+              ? `₱${amt}`
+              : payment || "credit";
+      return {
+        Icon: Play,
+        color: "text-emerald-400 bg-emerald-500/10",
+        title: `${log.actor_name} started on ${station || "?"} (${paid})`,
+        subtitle: payment === "gfunds" || payment === "points"
+          ? `Added time using ${payment === "gfunds" ? "gfunds" : "gamepoints"}`
+          : `Payment: ${payment || "credit"}`,
+      };
+    }
+    case "session_end":
+      return {
+        Icon: Square,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `${log.actor_name} ended session${d.station ? ` on ${str(d.station)}` : ""}`,
+        subtitle: "Session ended",
+      };
+    case "session_logout":
+      return {
+        Icon: LogOut,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `${log.actor_name} logged out${d.station ? ` from ${str(d.station)}` : ""}`,
+        subtitle: "Player logout",
+      };
+    case "session_resume":
+      return {
+        Icon: Play,
+        color: "text-amber-400 bg-amber-500/10",
+        title: `${log.actor_name} resumed session${d.station ? ` on ${str(d.station)}` : ""}`,
+        subtitle: "Session resumed",
+      };
+    case "admin_load": {
+      const g = num(d.gfunds);
+      const p = num(d.points);
+      const parts: string[] = [];
+      if (g > 0) parts.push(`₱${g} gfunds`);
+      if (p > 0) parts.push(`${p} pts`);
+      return {
+        Icon: Wallet,
+        color: "text-emerald-400 bg-emerald-500/10",
+        title: `Admin loaded ${parts.join(" + ") || "—"} → ${target}`,
+        subtitle: `Came from admin load`,
+      };
+    }
+    case "admin_deduct_points":
+      return {
+        Icon: Minus,
+        color: "text-red-400 bg-red-500/10",
+        title: `Admin deducted ${num(d.points)} pts from ${target}`,
+        subtitle: "Points taken back by admin",
+      };
+    case "admin_deduct_gfunds":
+      return {
+        Icon: Minus,
+        color: "text-red-400 bg-red-500/10",
+        title: `Admin deducted ₱${num(d.gfunds)} from ${target}`,
+        subtitle: "Gfunds taken back by admin",
+      };
+    case "admin_open_time":
+      return {
+        Icon: Clock,
+        color: "text-purple-400 bg-purple-500/10",
+        title: `Admin opened ${num(d.minutes)} mins on ${target} (₱${num(d.pesos)})`,
+        subtitle: "Walk-in time opened",
+      };
+    case "redeem_approve":
+      return {
+        Icon: Gift,
+        color: "text-amber-400 bg-amber-500/10",
+        title: `${target} redeemed ${num(d.points_used)} pts → ${num(d.minutes)} mins`,
+        subtitle: "Points converted to game time",
+      };
+    case "shop_grant":
+      return {
+        Icon: ShoppingBag,
+        color: "text-amber-400 bg-amber-500/10",
+        title: `Granted "${str(d.product) || "item"}" for ${num(d.points_spent)} pts → ${target}`,
+        subtitle: "Shop order granted",
+      };
+    case "station_command": {
+      const cmd = str(d.command);
+      const CmdIcon = cmd === "shutdown" ? Power : cmd === "restart" ? RotateCcw : Camera;
+      return {
+        Icon: CmdIcon,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `Station ${cmd} (${num(d.station_count)} station${num(d.station_count) === 1 ? "" : "s"})`,
+        subtitle: target,
+      };
+    }
+    case "station_control_start":
+      return {
+        Icon: Monitor,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `Remote control started on ${target}`,
+        subtitle: `${log.actor_name} is viewing the screen`,
+      };
+    case "station_control_stop":
+      return {
+        Icon: Monitor,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `Remote control stopped on ${target}`,
+        subtitle: "Viewing session ended",
+      };
+    case "player_login":
+      return {
+        Icon: LogOut,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `${log.actor_name} logged in`,
+        subtitle: "Player login",
+      };
+    case "player_logout":
+      return {
+        Icon: LogOut,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `${log.actor_name} logged out`,
+        subtitle: "Player logout",
+      };
+    default:
+      return {
+        Icon: Activity,
+        color: "text-purple-400 bg-purple-500/10",
+        title: `${log.action}${target ? ` → ${target}` : ""}`,
+        subtitle: log.details
+          ? Object.entries(log.details)
+              .map(([k, v]) => `${k}: ${String(v)}`)
+              .join(" • ")
+          : log.actor_name,
+      };
+  }
+}
+
+// Human-readable rendering for a unified timeline item
+// (activity_log, fund_ledger, point_ledger or session row).
+function formatTimelineItem(item: TimelineItem): FormattedEvent {
+  const e = item.entry;
+  const num = (v: unknown) => Number(v) || 0;
+  const str = (v: unknown) => String(v ?? "");
+
+  if (item.source === "activity") {
+    return formatActivityLog(e as unknown as ActivityLogEntry);
+  }
+  if (item.source === "fund_ledger") {
+    const amt = num(e.amount);
+    const type = str(e.type);
+    if (type === "admin_load") {
+      return {
+        Icon: Wallet,
+        color: "text-emerald-400 bg-emerald-500/10",
+        title: `Loaded +₱${amt} gfunds`,
+        subtitle: `Came from admin • ₱${num(e.balance_before)} → ₱${num(e.balance_after)}`,
+      };
+    }
+    if (type === "admin_deduct") {
+      return {
+        Icon: Minus,
+        color: "text-red-400 bg-red-500/10",
+        title: `Deducted −₱${Math.abs(amt)} gfunds`,
+        subtitle: `Taken back by admin • ₱${num(e.balance_before)} → ₱${num(e.balance_after)}`,
+      };
+    }
+    return {
+      Icon: CircleDollarSign,
+      color: "text-amber-400 bg-amber-500/10",
+      title: `Spent −₱${Math.abs(amt)} gfunds on session`,
+      subtitle: `${str(e.description) || type} • ₱${num(e.balance_before)} → ₱${num(e.balance_after)}`,
+    };
+  }
+  if (item.source === "point_ledger") {
+    const amt = num(e.amount);
+    const positive = amt >= 0;
+    return {
+      Icon: Gift,
+      color: positive
+        ? "text-emerald-400 bg-emerald-500/10"
+        : "text-red-400 bg-red-500/10",
+      title: `${positive ? "+" : "−"}${Math.abs(amt)} pts (${str(e.type)})`,
+      subtitle: `${str(e.description) || "points change"} • ${num(e.balance_before)} → ${num(e.balance_after)} pts`,
+    };
+  }
+  // session
+  return {
+    Icon: Clock,
+    color: "text-purple-400 bg-purple-500/10",
+    title: `Session: ${num(e.minutes)} mins (₱${num(e.amount)})`,
+    subtitle: str(e.station_name)
+      ? `Played on ${str(e.station_name)}`
+      : "Game session",
+  };
+}
 
 const GRADIENT =
   "bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500";
@@ -97,6 +378,15 @@ export default function Admin() {
   const [openMinutes, setOpenMinutes] = useState(0);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [subTab, setSubTab] = useState<"sessions" | "points" | "funds" | "activity">("sessions");
+  const [playerHistory, setPlayerHistory] = useState<PlayerHistoryData | null>(null);
+  const [playerHistoryLoading, setPlayerHistoryLoading] = useState(false);
+  const [fromActivityDate, setFromActivityDate] = useState("");
+  const [toActivityDate, setToActivityDate] = useState("");
+  const [actionFilter, setActionFilter] = useState("");
+  const [searchActivity, setSearchActivity] = useState("");
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>([]);
   const [pending, setPending] = useState<Redeem[]>([]);
   const [shopOrders, setShopOrders] = useState<ShopOrder[]>([]);
   const [grantingId, setGrantingId] = useState<string | null>(null);
@@ -106,6 +396,7 @@ export default function Admin() {
   const [viewStation, setViewStation] = useState<Station | null>(null);
   const [shareStation, setShareStation] = useState<Station | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<null | "load" | "deduct">(null);
   const [toast, setToast] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -170,54 +461,105 @@ export default function Admin() {
     loadUsers();
   }, []);
 
+  useEffect(() => {
+    const fetchActivityLogs = async () => {
+      if (tab !== "activity") {
+        setActivityLogs([]);
+        setActivityLoading(false);
+        return;
+      }
+      setActivityLoading(true);
+      try {
+        const res = await fetch(`/api/admin/activity-log?from=${fromActivityDate}&to=${toActivityDate}&action=${actionFilter}&search=${searchActivity}`);
+        const data = await res.json();
+        setActivityLogs(data.data || []);
+        setActivityLoading(false);
+      } catch {
+        setActivityLoading(false);
+        notify("Failed to load activity log");
+      }
+    };
+
+    fetchActivityLogs();
+    return () => {
+      // cleanup
+    };
+  }, [tab, fromActivityDate, toActivityDate, actionFilter, searchActivity]);
+
+  const loadPlayerHistory = async (id: string) => {
+    setPlayerHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/admin/player-history?user_id=${id}`);
+      const data = await res.json();
+      if (!data.error) setPlayerHistory(data);
+    } catch {
+      // keep old data on failure
+    } finally {
+      setPlayerHistoryLoading(false);
+    }
+  };
+
   const openHistory = (user: User) => {
     setSelectedUser(user);
+    setSubTab("sessions");
+    setPlayerHistory(null);
     loadSessions(user.id);
+    loadPlayerHistory(user.id);
     setTab("history");
   };
 
   const deductPoints = async () => {
-    if (!selectedUser || deductAmount <= 0) return;
-    const endpoint =
-      deductType === "gfunds" ? "/api/deduct-gfunds" : "/api/deduct-points";
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        deductType === "gfunds"
-          ? { name: selectedUser.name, gfunds: deductAmount }
-          : { name: selectedUser.name, points: deductAmount }
-      ),
-    });
-    const data = await res.json();
-    setShowDeductModal(false);
-    setDeductAmount(0);
-    loadUsers();
-    loadSessions(selectedUser.id);
-    notify(data.error || `Deducted from ${selectedUser.name}.`);
+    if (!selectedUser || deductAmount <= 0 || busyAction) return;
+    setBusyAction("deduct");
+    try {
+      const endpoint =
+        deductType === "gfunds" ? "/api/deduct-gfunds" : "/api/deduct-points";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          deductType === "gfunds"
+            ? { name: selectedUser.name, gfunds: deductAmount }
+            : { name: selectedUser.name, points: deductAmount }
+        ),
+      });
+      const data = await res.json();
+      setShowDeductModal(false);
+      setDeductAmount(0);
+      loadUsers();
+      loadSessions(selectedUser.id);
+      notify(data.error || `Deducted from ${selectedUser.name}.`);
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const loadAccount = async () => {
-    if (!selectedUser || (loadGfunds <= 0 && loadPoints <= 0)) return;
-    const res = await fetch("/api/admin/load", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: selectedUser.id,
-        gfunds: loadGfunds,
-        points: loadPoints,
-      }),
-    });
-    const data = await res.json();
-    if (data.error) {
-      notify(data.error);
-      return;
+    if (!selectedUser || (loadGfunds <= 0 && loadPoints <= 0) || busyAction) return;
+    setBusyAction("load");
+    try {
+      const res = await fetch("/api/admin/load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: selectedUser.id,
+          gfunds: loadGfunds,
+          points: loadPoints,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        notify(data.error);
+        return;
+      }
+      setShowModal(false);
+      setLoadGfunds(0);
+      setLoadPoints(0);
+      loadUsers();
+      notify(`Account loaded for ${selectedUser.name}.`);
+    } finally {
+      setBusyAction(null);
     }
-    setShowModal(false);
-    setLoadGfunds(0);
-    setLoadPoints(0);
-    loadUsers();
-    notify(`Account loaded for ${selectedUser.name}.`);
   };
 
   const addStation = async () => {
@@ -386,6 +728,7 @@ export default function Admin() {
     { id: "shop", label: "Shop", icon: ShoppingBag, badge: shopOrders.length },
     { id: "users", label: "Users", icon: Users },
     { id: "history", label: "History", icon: History },
+    { id: "activity", label: "Activity", icon: Activity },
   ];
 
   return (
@@ -903,6 +1246,49 @@ export default function Admin() {
               </button>
             </div>
 
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setSubTab("sessions")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  subTab === "sessions"
+                    ? "bg-purple-500/10 text-purple-400"
+                    : "bg-zinc-800/60 text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Sessions
+                </button>
+                <button
+                  onClick={() => setSubTab("points")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    subTab === "points"
+                      ? "bg-amber-500/20 text-amber-400"
+                    : "bg-zinc-800/60 text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Points
+                </button>
+                <button
+                  onClick={() => setSubTab("funds")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    subTab === "funds"
+                      ? "bg-emerald-500/20 text-emerald-400"
+                    : "bg-zinc-800/60 text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Funds
+                </button>
+                <button
+                  onClick={() => setSubTab("activity")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    subTab === "activity"
+                      ? "bg-purple-500/10 text-purple-400"
+                    : "bg-zinc-800/60 text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Activity
+                </button>
+              </div>
+
             <h2 className="font-bold mb-3 flex items-center gap-2">
               <History className="w-4 h-4 text-pink-500" />
               {selectedUser
@@ -914,6 +1300,149 @@ export default function Admin() {
               <div className="text-sm text-zinc-500 py-8 text-center">
                 No user selected. Pick one from the Users tab.
               </div>
+            ) : subTab === "points" ? (
+              playerHistoryLoading ? (
+                <div className="text-sm text-zinc-500 py-8 text-center">Loading points history…</div>
+              ) : !playerHistory || playerHistory.point_ledger.data.length === 0 ? (
+                <div className="text-sm text-zinc-500 py-8 text-center">No points history for this user.</div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-xl font-semibold">
+                      Earned: +{playerHistory.summary.total_points_earned} pts
+                    </div>
+                    <div className="bg-red-500/10 text-red-400 px-3 py-2 rounded-xl font-semibold">
+                      Spent: -{playerHistory.summary.total_points_spent} pts
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {playerHistory.point_ledger.data.map((e) => (
+                      <div
+                        key={e.id}
+                        className="flex items-center justify-between bg-zinc-900/50 border border-white/5 px-3 py-2.5 rounded-xl"
+                      >
+                        <div className="min-w-0">
+                          <div className={`text-sm font-bold ${e.amount >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {e.amount >= 0 ? "+" : ""}{e.amount} pts
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate">
+                            {e.type} • {e.balance_before} → {e.balance_after}
+                            {e.description ? ` • ${e.description}` : ""}
+                          </div>
+                        </div>
+                        <div className="text-[11px] text-zinc-500 shrink-0 ml-2">
+                          {new Date(e.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            ) : subTab === "funds" ? (
+              playerHistoryLoading ? (
+                <div className="text-sm text-zinc-500 py-8 text-center">Loading funds history…</div>
+              ) : !playerHistory || playerHistory.fund_ledger.data.length === 0 ? (
+                <div className="text-sm text-zinc-500 py-8 text-center">
+                  No funds history for this user. Loads and deducts will appear here.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-xl font-semibold">
+                      Loaded: +₱{playerHistory.summary.total_gfunds_loaded}
+                    </div>
+                    <div className="bg-red-500/10 text-red-400 px-3 py-2 rounded-xl font-semibold">
+                      Deducted: -₱{playerHistory.summary.total_gfunds_deducted}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {playerHistory.fund_ledger.data.map((e) => (
+                      <div
+                        key={e.id}
+                        className="flex items-center justify-between bg-zinc-900/50 border border-white/5 px-3 py-2.5 rounded-xl"
+                      >
+                        <div className="min-w-0">
+                          <div className={`text-sm font-bold ${e.amount >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {e.amount >= 0 ? "+₱" : "-₱"}{Math.abs(e.amount)}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate">
+                            {e.type} • ₱{e.balance_before} → ₱{e.balance_after}
+                            {e.description ? ` • ${e.description}` : ""}
+                          </div>
+                        </div>
+                        <div className="text-[11px] text-zinc-500 shrink-0 ml-2">
+                          {new Date(e.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            ) : subTab === "activity" ? (
+              playerHistoryLoading ? (
+                <div className="text-sm text-zinc-500 py-8 text-center">Loading activity…</div>
+              ) : !playerHistory ||
+                ((playerHistory.timeline ?? []).length === 0 &&
+                  playerHistory.activity_log.data.length === 0) ? (
+                <div className="text-sm text-zinc-500 py-8 text-center">
+                  No recorded activity for this user yet. Time shares, session starts and admin actions will appear here.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {(playerHistory.timeline && playerHistory.timeline.length > 0
+                    ? playerHistory.timeline.map((item, i) => {
+                        const f = formatTimelineItem(item);
+                        const key = String(
+                          (item.entry as { id?: unknown }).id ?? `${item.created_at}-${i}`
+                        );
+                        return (
+                          <div
+                            key={key}
+                            className="flex items-center gap-2.5 bg-zinc-900/50 border border-white/5 px-3 py-2.5 rounded-xl"
+                          >
+                            <div className={`p-2 rounded-lg shrink-0 ${f.color}`}>
+                              <f.Icon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium truncate">
+                                {f.title}
+                              </div>
+                              <div className="text-[11px] text-zinc-500 truncate">
+                                {f.subtitle}
+                              </div>
+                            </div>
+                            <div className="text-[11px] text-zinc-500 shrink-0">
+                              {new Date(item.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                        );
+                      })
+                    : playerHistory.activity_log.data.map((log) => {
+                        const f = formatActivityLog(log);
+                        return (
+                          <div
+                            key={log.id}
+                            className="flex items-center gap-2.5 bg-zinc-900/50 border border-white/5 px-3 py-2.5 rounded-xl"
+                          >
+                            <div className={`p-2 rounded-lg shrink-0 ${f.color}`}>
+                              <f.Icon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium truncate">
+                                {f.title}
+                              </div>
+                              <div className="text-[11px] text-zinc-500 truncate">
+                                {f.subtitle}
+                              </div>
+                            </div>
+                            <div className="text-[11px] text-zinc-500 shrink-0">
+                              {new Date(log.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                        );
+                      }))}
+                </div>
+              )
             ) : sessions.length === 0 ? (
               <div className="text-sm text-zinc-500 py-8 text-center">
                 No history for this user.
@@ -972,6 +1501,123 @@ export default function Admin() {
           </div>
         )}
       </div>
+
+      {/* ============ ACTIVITY LOG TAB ============ */}
+      {tab === "activity" && (
+        <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-4 sm:p-5">
+          <div className="flex flex-wrap gap-2 mb-4">
+            <input
+              type="date"
+              value={fromActivityDate}
+              onChange={(e) => setFromActivityDate(e.target.value)}
+              className="px-3 py-2 bg-[#1e293b] border border-white/5 rounded-xl text-sm [color-scheme:dark]"
+              placeholder="From"
+            />
+            <input
+              type="date"
+              value={toActivityDate}
+              onChange={(e) => setToActivityDate(e.target.value)}
+              className="px-3 py-2 bg-[#1e293b] border border-white/5 rounded-xl text-sm [color-scheme:dark]"
+              placeholder="To"
+            />
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              className="px-3 py-2 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-purple-500/60"
+            >
+              <option value="">All Actions</option>
+              <option value="admin_load">Admin Load</option>
+              <option value="admin_deduct_points">Admin Deduct Points</option>
+              <option value="admin_deduct_gfunds">Admin Deduct Gfunds</option>
+              <option value="session_start">Session Start</option>
+              <option value="session_end">Session End</option>
+              <option value="session_logout">Session Logout</option>
+              <option value="session_resume">Session Resume</option>
+              <option value="session_share">Session Share</option>
+              <option value="admin_open_time">Admin Open Time</option>
+              <option value="redeem_approve">Redeem Approve</option>
+              <option value="shop_grant">Shop Grant</option>
+              <option value="station_command">Station Command</option>
+              <option value="station_control_start">Station Control Start</option>
+              <option value="station_control_stop">Station Control Stop</option>
+              <option value="player_login">Player Login</option>
+              <option value="player_logout">Player Logout</option>
+            </select>
+            <input
+              type="text"
+              value={searchActivity}
+              onChange={(e) => setSearchActivity(e.target.value)}
+              placeholder="Search player, station or action..."
+              className="px-3 py-2 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-purple-500/60 w-64"
+            />
+            <button
+              onClick={() => { setFromActivityDate(""); setToActivityDate(""); setActionFilter(""); setSearchActivity(""); }}
+              className="px-3 py-2 rounded-xl text-sm font-medium bg-zinc-800/70 text-zinc-400 hover:bg-zinc-700/70 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+
+          <h2 className="font-bold mb-3 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-pink-500" /> Activity Log
+          </h2>
+
+          {activityLoading ? (
+            <div className="text-sm text-zinc-500 py-8 text-center">Loading activity log...</div>
+          ) : activityLogs.length === 0 ? (
+            <div className="text-sm text-zinc-500 py-8 text-center">
+              No activity log entries found. Start logging by performing admin actions.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-zinc-400">
+                <thead className="text-xs text-zinc-500 border-b border-white/5">
+                  <tr>
+                    <th className="p-3 text-left">Time</th>
+                    <th className="p-3 text-left">Event</th>
+                    <th className="p-3 text-left">From → To</th>
+                    <th className="p-3 text-left">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activityLogs.map((log) => {
+                    const f = formatActivityLog(log);
+                    const isShare = log.action === "session_share";
+                    const isAdminAction =
+                      log.actor_role === "admin" && log.target_id;
+                    const parties = isShare
+                      ? `${log.actor_name} → ${log.target_id}`
+                      : isAdminAction
+                        ? `${log.actor_name} → ${log.target_id}`
+                        : log.actor_name;
+                    return (
+                      <tr key={log.id} className="border-b border-white/5 hover:bg-zinc-900/50">
+                        <td className="p-3 whitespace-nowrap">
+                          {new Date(log.created_at).toLocaleTimeString()}
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`p-1.5 rounded-lg shrink-0 ${f.color}`}>
+                              <f.Icon className="w-3.5 h-3.5" />
+                            </span>
+                            <span className="font-medium text-zinc-200">{f.title}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 font-medium whitespace-nowrap">
+                          {parties}
+                        </td>
+                        <td className="p-3 text-[11px]">
+                          {f.subtitle}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ============ DEDUCT MODAL ============ */}
       {showDeductModal && selectedUser && (
@@ -1038,10 +1684,16 @@ export default function Admin() {
 
             <button
               onClick={deductPoints}
-              disabled={deductAmount <= 0}
-              className="w-full py-2.5 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-40 transition-colors"
+              disabled={deductAmount <= 0 || busyAction === "deduct"}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
             >
-              Confirm Deduct
+              {busyAction === "deduct" ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Deducting…
+                </>
+              ) : (
+                "Confirm Deduct"
+              )}
             </button>
             <button
               onClick={() => {
@@ -1107,9 +1759,16 @@ export default function Admin() {
 
             <button
               onClick={loadAccount}
-              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 transition-all"
+              disabled={busyAction === "load" || (loadGfunds <= 0 && loadPoints <= 0)}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 transition-all flex items-center justify-center gap-2"
             >
-              Load
+              {busyAction === "load" ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                </>
+              ) : (
+                "Load"
+              )}
             </button>
             <button
               onClick={() => {

@@ -1,7 +1,8 @@
 import { StationRepository } from "@/lib/repositories/StationRepository";
+import { ActivityLogService } from "@/lib/services/ActivityLogService";
 
 const stationRepo = new StationRepository();
-const OFFLINE_MS = 45 * 1000;
+const activityLog = new ActivityLogService();
 
 export async function POST(req: Request) {
   const { ids, all, action } = await req.json();
@@ -16,6 +17,11 @@ export async function POST(req: Request) {
   try {
     if (action === "stop") {
       await stationRepo.setRemoteControl(all ? [] : ids, false, !!all);
+      // Log station control stop
+      await activityLog.logStationControlStop(
+        "Admin",
+        all ? "all PCs" : (ids[0] ? `PC-${ids[0].substring(0, 8)}` : "unknown")
+      );
       return Response.json({ success: true });
     }
 
@@ -30,7 +36,7 @@ export async function POST(req: Request) {
     const offline = targets.filter(
       (s) =>
         !s.last_seen_at ||
-        Date.now() - new Date(s.last_seen_at).getTime() > OFFLINE_MS
+        Date.now() - new Date(s.last_seen_at).getTime() > 45 * 1000
     );
     if (offline.length > 0) {
       return Response.json(
@@ -52,6 +58,11 @@ export async function POST(req: Request) {
     await stationRepo.setRemoteControl(
       targets.map((s) => s.id),
       true
+    );
+    // Log station control start
+    await activityLog.logStationControlStart(
+      "Admin",
+      targets[0]?.name || "unknown"
     );
     return Response.json({ success: true });
   } catch (err: unknown) {

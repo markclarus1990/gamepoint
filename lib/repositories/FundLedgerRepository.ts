@@ -1,14 +1,14 @@
 import { supabase } from "@/lib/supabase";
-import type { PointLedgerEntry } from "@/types";
+import type { FundLedgerEntry } from "@/types";
 
-export class LedgerRepository {
+export class FundLedgerRepository {
   async findByUser(
     userId: string,
     page?: number,
     pageSize?: number
-  ): Promise<{ data: PointLedgerEntry[]; total: number }> {
+  ): Promise<{ data: FundLedgerEntry[]; total: number }> {
     let query = supabase
-      .from("point_ledger")
+      .from("fund_ledger")
       .select("*", { count: "exact" })
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
@@ -20,12 +20,12 @@ export class LedgerRepository {
     }
 
     const { data, count } = await query;
-    return { data: data || [], total: count ?? 0 };
+    return { data: (data as FundLedgerEntry[]) || [], total: count ?? 0 };
   }
 
   async log(entry: {
     user_id: string;
-    type: PointLedgerEntry["type"];
+    type: string;
     amount: number;
     balance_before: number;
     balance_after: number;
@@ -34,7 +34,7 @@ export class LedgerRepository {
     description?: string | null;
   }): Promise<void> {
     try {
-      await supabase.from("point_ledger").insert({
+      await supabase.from("fund_ledger").insert({
         user_id: entry.user_id,
         type: entry.type,
         amount: entry.amount,

@@ -1,6 +1,10 @@
 import { UserRepository } from "@/lib/repositories/UserRepository";
+import { LedgerRepository } from "@/lib/repositories/LedgerRepository";
+import { ActivityLogService } from "@/lib/services/ActivityLogService";
 
 const userRepo = new UserRepository();
+const pointLedger = new LedgerRepository();
+const activityLog = new ActivityLogService();
 
 export async function POST(req: Request) {
   const { name, points } = await req.json();
@@ -14,8 +18,27 @@ export async function POST(req: Request) {
     return Response.json({ error: "User not found" }, { status: 404 });
   }
 
-  const newPoints = Math.max(0, user.points - points);
+  const beforePoints = user.points || 0;
+  const actualDeducted = Math.min(points, beforePoints);
+  const newPoints = Math.max(0, beforePoints - points);
   await userRepo.updatePointsByName(name, newPoints);
+
+  // Record in point ledger so admin can see where points went
+  void pointLedger.log({
+    user_id: user.id,
+    type: "admin_adjustment",
+    amount: -actualDeducted,
+    balance_before: beforePoints,
+    balance_after: newPoints,
+    description: `Admin deduct: -${actualDeducted} pts`,
+  });
+
+  // Log the admin deduct points action
+  await activityLog.logAdminDeductPoints(
+    "Admin", // actor - the admin user (we could get this from session)
+    name,
+    points
+  );
 
   return Response.json({ success: true });
 }
