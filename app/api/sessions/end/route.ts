@@ -30,6 +30,8 @@ export async function POST(req: Request) {
 
   if (actorName) {
     void activityLog.logSessionEnd(actorName, station_name);
+  } else {
+    void activityLog.logSessionEnd("unknown", station_name);
   }
 
   return Response.json(result);

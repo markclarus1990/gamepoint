@@ -1,7 +1,9 @@
 import { StationRepository } from "@/lib/repositories/StationRepository";
+import { ActivityLogService } from "@/lib/services/ActivityLogService";
 import { supabase } from "@/lib/supabase";
 
 const stationRepo = new StationRepository();
+const activityLog = new ActivityLogService();
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 export async function POST(req: Request) {
@@ -40,6 +42,8 @@ export async function POST(req: Request) {
 
   const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/station-shots/${path}`;
   await stationRepo.saveScreenshot(station.id, url);
+
+  void activityLog.logAgentScreenshot(station.name, bytes.length, url);
 
   return Response.json({ success: true, url });
 }

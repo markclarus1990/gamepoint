@@ -27,6 +27,8 @@ import {
   Square,
   Minus,
   Wallet,
+  Trophy,
+  AlertTriangle,
 } from "lucide-react";
 
 type User = {
@@ -145,12 +147,51 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
   switch (log.action) {
     case "session_share": {
       const mins = num(d.minutes);
-      const station = str(d.source_station);
+      const fromStation = str(d.source_station);
+      const toStation = str(d.target_station ?? d.target_station_before);
+      const giverRemaining = d.giver_remaining_before !== undefined ? ` • had ${Math.floor(num(d.giver_remaining_before) / 60)}m left` : "";
+      const creditBefore = d.target_credit_before !== undefined ? ` • target had ${num(d.target_credit_before)}m credit` : "";
       return {
         Icon: Share2,
-        color: "text-sky-400 bg-sky-500/10",
+        color: "text-sky-400 bg-sky-500/10 border border-sky-500/20",
         title: `Shared ${mins} mins → ${target || "?"}`,
+        subtitle: `From ${log.actor_name}${fromStation ? ` (${fromStation})` : ""} → ${target || "?"}${toStation ? ` (${toStation})` : ""}${giverRemaining}${creditBefore}`,
+      };
+    }
+    case "session_share_failed": {
+      const mins = num(d.minutes);
+      const station = str(d.source_station);
+      const reason = str(d.reason);
+      return {
+        Icon: X,
+        color: "text-red-400 bg-red-500/10 border border-red-500/20",
+        title: `Failed share ${mins} mins → ${target} (${reason})`,
         subtitle: `From ${log.actor_name}${station ? ` (${station})` : ""}`,
+      };
+    }
+    case "credit_consume": {
+      const station = str(d.station);
+      const credit = num(d.credit_minutes);
+      const remaining = d.remaining_seconds !== undefined ? ` • ${Math.floor(num(d.remaining_seconds) / 60)}m left` : "";
+      return {
+        Icon: Clock,
+        color: "text-teal-400 bg-teal-500/10",
+        title: `${log.actor_name} used ${credit}m shared time on ${station || "?"}`,
+        subtitle: `Where shared time went — consumed${remaining}`,
+      };
+    }
+    case "add_time": {
+      const station = str(d.station);
+      const payment = str(d.payment);
+      const mins = num(d.minutes_added);
+      const g = num(d.gfundsUsed);
+      const p = num(d.pointsUsed);
+      const paid = payment === "gfunds" ? `₱${g}` : `${p} pts`;
+      return {
+        Icon: Plus,
+        color: "text-purple-400 bg-purple-500/10",
+        title: `${log.actor_name} added ${mins}m on ${station || "?"} (${paid} via ${payment === "gfunds" ? "gfunds" : "gamepoints"})`,
+        subtitle: `Where funds came from: ${payment} • remaining ${Math.floor(num(d.remaining_seconds) / 60)}m`,
       };
     }
     case "session_start": {
@@ -159,21 +200,29 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
       const g = num(d.gfundsUsed ?? d.gfunds_used);
       const p = num(d.pointsUsed ?? d.points_used);
       const amt = num(d.amount);
+      const mins = d.minutes !== undefined ? ` • ${num(d.minutes)}m` : "";
       const paid =
         payment === "gfunds" && g > 0
           ? `₱${g} gfunds`
           : payment === "points" && p > 0
             ? `${p} pts`
-            : amt > 0
-              ? `₱${amt}`
-              : payment || "credit";
+            : payment === "credit"
+              ? `${num(d.credit_minutes ?? d.minutes)}m shared time`
+              : amt > 0
+                ? `₱${amt}`
+                : payment || "credit";
       return {
         Icon: Play,
-        color: "text-emerald-400 bg-emerald-500/10",
-        title: `${log.actor_name} started on ${station || "?"} (${paid})`,
-        subtitle: payment === "gfunds" || payment === "points"
-          ? `Added time using ${payment === "gfunds" ? "gfunds" : "gamepoints"}`
-          : `Payment: ${payment || "credit"}`,
+        color: payment === "credit" ? "text-teal-400 bg-teal-500/10" : "text-emerald-400 bg-emerald-500/10",
+        title: `${log.actor_name} started on ${station || "?"} (${paid})${mins}`,
+        subtitle:
+          payment === "gfunds"
+            ? `Added time using gfunds${mins} • from ₱${g}`
+            : payment === "points"
+              ? `Added time using gamepoints${mins} • from ${p} pts`
+              : payment === "credit"
+                ? `Where it came from: shared time pool • on ${station}`
+                : `Payment: ${payment || "credit"}`,
       };
     }
     case "session_end":
@@ -183,20 +232,25 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
         title: `${log.actor_name} ended session${d.station ? ` on ${str(d.station)}` : ""}`,
         subtitle: "Session ended",
       };
-    case "session_logout":
+    case "session_logout": {
+      const secs = d.remaining_seconds !== undefined ? ` • ${Math.floor(num(d.remaining_seconds) / 60)}m saved` : "";
+      const paused = d.was_paused ? " (paused)" : "";
       return {
         Icon: LogOut,
         color: "text-zinc-400 bg-zinc-500/10",
-        title: `${log.actor_name} logged out${d.station ? ` from ${str(d.station)}` : ""}`,
+        title: `${log.actor_name} logged out${d.station ? ` from ${str(d.station)}` : ""}${secs}${paused}`,
         subtitle: "Player logout",
       };
-    case "session_resume":
+    }
+    case "session_resume": {
+      const secs = d.resume_seconds !== undefined ? `${Math.floor(num(d.resume_seconds) / 60)}m` : d.remaining_seconds !== undefined ? `${Math.floor(num(d.remaining_seconds) / 60)}m` : "";
       return {
         Icon: Play,
         color: "text-amber-400 bg-amber-500/10",
-        title: `${log.actor_name} resumed session${d.station ? ` on ${str(d.station)}` : ""}`,
-        subtitle: "Session resumed",
+        title: `${log.actor_name} resumed session${d.station ? ` on ${str(d.station)}` : ""}${secs ? ` (${secs})` : ""}`,
+        subtitle: secs ? `Where time came from: paused session • ${secs} restored` : "Session resumed",
       };
+    }
     case "admin_load": {
       const g = num(d.gfunds);
       const p = num(d.points);
@@ -269,13 +323,24 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
         title: `Remote control stopped on ${target}`,
         subtitle: "Viewing session ended",
       };
-    case "player_login":
+    case "player_login": {
+      const station = str(d.station);
       return {
         Icon: LogOut,
-        color: "text-zinc-400 bg-zinc-500/10",
-        title: `${log.actor_name} logged in`,
-        subtitle: "Player login",
+        color: "text-emerald-400 bg-emerald-500/10",
+        title: `${log.actor_name} logged in${station ? ` on ${station}` : ""}`,
+        subtitle: station ? `Login at ${station}` : "Player login",
       };
+    }
+    case "player_login_failed": {
+      const reason = str(d.reason);
+      return {
+        Icon: X,
+        color: "text-red-400 bg-red-500/10",
+        title: `Failed login: ${target} (${reason})`,
+        subtitle: "Login attempt rejected",
+      };
+    }
     case "player_logout":
       return {
         Icon: LogOut,
@@ -283,6 +348,34 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
         title: `${log.actor_name} logged out`,
         subtitle: "Player logout",
       };
+    case "pin_change":
+      return {
+        Icon: KeyRound,
+        color: "text-amber-400 bg-amber-500/10",
+        title: `${log.actor_name} changed PIN`,
+        subtitle: "PIN updated via agent",
+      };
+    case "agent_screenshot": {
+      const station = str(d.station ?? target);
+      const bytes = num(d.image_bytes);
+      return {
+        Icon: Camera,
+        color: "text-zinc-400 bg-zinc-500/10",
+        title: `Screenshot from ${station} (${bytes > 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${bytes} B`})`,
+        subtitle: "Agent uploaded screenshot",
+      };
+    }
+    case "agent_command_done": {
+      const station = str(d.station ?? target);
+      const cmd = str(d.command);
+      const CmdIcon = cmd === "shutdown" ? Power : cmd === "restart" ? RotateCcw : Camera;
+      return {
+        Icon: CmdIcon,
+        color: "text-emerald-400 bg-emerald-500/10",
+        title: `Agent on ${station} executed ${cmd}`,
+        subtitle: "Command completed and cleared",
+      };
+    }
     default:
       return {
         Icon: Activity,
@@ -387,6 +480,8 @@ export default function Admin() {
   const [searchActivity, setSearchActivity] = useState("");
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>([]);
+  const [topSharers, setTopSharers] = useState<{ actor_name: string; share_count: number; total_minutes: number }[]>([]);
+  const [topSharersLoading, setTopSharersLoading] = useState(false);
   const [pending, setPending] = useState<Redeem[]>([]);
   const [shopOrders, setShopOrders] = useState<ShopOrder[]>([]);
   const [grantingId, setGrantingId] = useState<string | null>(null);
@@ -480,7 +575,28 @@ export default function Admin() {
       }
     };
 
+    const fetchTopSharers = async () => {
+      if (tab !== "activity") {
+        setTopSharers([]);
+        return;
+      }
+      setTopSharersLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (fromActivityDate) params.set("from", fromActivityDate);
+        if (toActivityDate) params.set("to", toActivityDate);
+        const res = await fetch(`/api/admin/top-sharers?${params.toString()}`);
+        const data = await res.json();
+        setTopSharers(data.top_sharers || []);
+      } catch {
+        // keep old
+      } finally {
+        setTopSharersLoading(false);
+      }
+    };
+
     fetchActivityLogs();
+    fetchTopSharers();
     return () => {
       // cleanup
     };
@@ -1533,15 +1649,22 @@ export default function Admin() {
               <option value="session_end">Session End</option>
               <option value="session_logout">Session Logout</option>
               <option value="session_resume">Session Resume</option>
-              <option value="session_share">Session Share</option>
+              <option value="session_share">Session Share ✓</option>
+              <option value="session_share_failed">Share Failed</option>
+              <option value="credit_consume">Credit Consume</option>
+              <option value="add_time">Add Time</option>
               <option value="admin_open_time">Admin Open Time</option>
               <option value="redeem_approve">Redeem Approve</option>
               <option value="shop_grant">Shop Grant</option>
               <option value="station_command">Station Command</option>
               <option value="station_control_start">Station Control Start</option>
               <option value="station_control_stop">Station Control Stop</option>
+              <option value="agent_screenshot">Agent Screenshot</option>
+              <option value="agent_command_done">Agent Command Done</option>
               <option value="player_login">Player Login</option>
+              <option value="player_login_failed">Login Failed</option>
               <option value="player_logout">Player Logout</option>
+              <option value="pin_change">PIN Change</option>
             </select>
             <input
               type="text"
@@ -1558,8 +1681,101 @@ export default function Admin() {
             </button>
           </div>
 
+          {/* Quick filters for stealing detection */}
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button
+              onClick={() => setActionFilter("session_share")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${actionFilter === "session_share" ? "bg-sky-500 text-white" : "bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"}`}
+            >
+              Shares only ✓
+            </button>
+            <button
+              onClick={() => setActionFilter("credit_consume")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${actionFilter === "credit_consume" ? "bg-teal-500 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"}`}
+            >
+              Credit used
+            </button>
+            <button
+              onClick={() => setActionFilter("add_time")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${actionFilter === "add_time" ? "bg-purple-500 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"}`}
+            >
+              Add time
+            </button>
+            <button
+              onClick={() => setActionFilter("player_login")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${actionFilter === "player_login" ? "bg-emerald-500 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"}`}
+            >
+              Logins
+            </button>
+            <button
+              onClick={() => setActionFilter("pin_change")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${actionFilter === "pin_change" ? "bg-amber-500 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"}`}
+            >
+              PIN changes
+            </button>
+            <button
+              onClick={() => setActionFilter("")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${actionFilter === "" ? "bg-white/10 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"}`}
+            >
+              All
+            </button>
+          </div>
+
+          {/* Top sharers — stealing detection */}
+          <div className="mb-4 p-3 rounded-xl bg-gradient-to-r from-sky-500/10 to-purple-500/10 border border-sky-500/20">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold tracking-widest text-sky-400 flex items-center gap-1.5">
+                <Trophy className="w-3.5 h-3.5" /> Top sharers — could be stealing?
+              </h3>
+              {topSharersLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />}
+            </div>
+            {topSharers.length === 0 ? (
+              <div className="text-xs text-zinc-500 py-2">
+                {topSharersLoading ? "Loading…" : "No shares in this period."}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {topSharers.map((s, i) => {
+                  const isSuspicious = s.share_count >= 5 || s.total_minutes >= 60;
+                  return (
+                    <button
+                      key={s.actor_name}
+                      onClick={() => {
+                        setSearchActivity(s.actor_name);
+                        setActionFilter("session_share");
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-left hover:brightness-110 transition ${isSuspicious ? "bg-red-500/10 border border-red-500/20" : "bg-zinc-900/50 border border-white/5"}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-zinc-500 font-bold">#{i + 1}</span>
+                        <span className="font-semibold text-white truncate">{s.actor_name}</span>
+                        {isSuspicious && (
+                          <span className="flex items-center gap-1 text-red-400 font-bold shrink-0">
+                            <AlertTriangle className="w-3 h-3" /> Check
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0 ml-2">
+                        <span className="font-bold text-sky-400">{s.share_count} shares</span>
+                        <span className="text-zinc-500"> • {s.total_minutes}m total</span>
+                      </div>
+                    </button>
+                  );
+                })}
+                <div className="text-[10px] text-zinc-500 pt-1">
+                  Flagged if ≥5 shares or ≥60 mins shared in period. Click a name to search.
+                </div>
+              </div>
+            )}
+          </div>
+
           <h2 className="font-bold mb-3 flex items-center gap-2">
             <Activity className="w-4 h-4 text-pink-500" /> Activity Log
+            {actionFilter === "session_share" && (
+              <span className="text-xs font-normal text-sky-400 border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 rounded-full">
+                Shares: from → to, station, minutes, where credit went
+              </span>
+            )}
           </h2>
 
           {activityLoading ? (
@@ -1582,16 +1798,25 @@ export default function Admin() {
                 <tbody>
                   {activityLogs.map((log) => {
                     const f = formatActivityLog(log);
-                    const isShare = log.action === "session_share";
-                    const isAdminAction =
-                      log.actor_role === "admin" && log.target_id;
-                    const parties = isShare
+                    const directedActions = new Set([
+                      "session_share",
+                      "session_share_failed",
+                      "admin_load",
+                      "admin_deduct_points",
+                      "admin_deduct_gfunds",
+                      "shop_grant",
+                      "redeem_approve",
+                    ]);
+                    const parties = directedActions.has(log.action) && log.target_id
                       ? `${log.actor_name} → ${log.target_id}`
-                      : isAdminAction
-                        ? `${log.actor_name} → ${log.target_id}`
-                        : log.actor_name;
+                      : log.action === "credit_consume"
+                        ? `${log.actor_name} → ${String(log.details?.station ?? log.target_id ?? "")}`
+                        : log.actor_role === "admin" && log.target_id
+                          ? `${log.actor_name} → ${log.target_id}`
+                          : log.actor_name;
+                    const isShareRow = log.action === "session_share";
                     return (
-                      <tr key={log.id} className="border-b border-white/5 hover:bg-zinc-900/50">
+                      <tr key={log.id} className={`border-b border-white/5 hover:bg-zinc-900/50 ${isShareRow ? "bg-sky-500/[0.04]" : ""}`}>
                         <td className="p-3 whitespace-nowrap">
                           {new Date(log.created_at).toLocaleTimeString()}
                         </td>

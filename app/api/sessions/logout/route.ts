@@ -28,7 +28,10 @@ export async function POST(req: Request) {
     return Response.json({ error: result.error }, { status: 400 });
   }
 
-  void activityLog.logSessionLogout(actorName, station_name);
+  void activityLog.logSessionLogout(actorName, station_name, {
+    remaining_seconds: result.remaining_seconds,
+    was_paused: result.remaining_seconds > 0,
+  });
 
   return Response.json(result);
 }

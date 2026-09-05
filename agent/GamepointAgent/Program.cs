@@ -1278,25 +1278,41 @@ try
 
             _card = new Panel
             {
-                BackColor = C(COLOR_CARD),
-                Size = new Size(380, 600),
+                BackColor = Color.Transparent,
+                Size = new Size(320, 480),
                 Anchor = AnchorStyles.None
             };
-            _card.Region = RoundedRegion(_card, 16);
+            _card.Region = RoundedRegion(_card, 14);
+            _card.Paint += (s, e) =>
+            {
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using var path = new System.Drawing.Drawing2D.GraphicsPath();
+                int r = 14;
+                var rect = new Rectangle(0, 0, _card.Width - 1, _card.Height - 1);
+                path.AddArc(rect.X, rect.Y, r * 2, r * 2, 180, 90);
+                path.AddArc(rect.Right - r * 2, rect.Y, r * 2, r * 2, 270, 90);
+                path.AddArc(rect.Right - r * 2, rect.Bottom - r * 2, r * 2, r * 2, 0, 90);
+                path.AddArc(rect.X, rect.Bottom - r * 2, r * 2, r * 2, 90, 90);
+                path.CloseFigure();
+                using var brush = new SolidBrush(Color.FromArgb(135, 15, 27, 46));
+                e.Graphics.FillPath(brush, path);
+                using var pen = new Pen(Color.FromArgb(40, 255, 255, 255), 1);
+                e.Graphics.DrawPath(pen, path);
+            };
 
-            // ---- LOGIN PANEL ----
-            _loginPanel = new Panel { BackColor = C(COLOR_CARD), Size = new Size(340, 560) };
-            var inputName = ModernInput(false, out _txtName);
-            var inputPin = ModernInput(true, out _txtPin);
+            // ---- LOGIN PANEL ---- (compact, transparent)
+            _loginPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 440) };
+            var inputName = ModernInput(false, out _txtName, 280);
+            var inputPin = ModernInput(true, out _txtPin, 280);
             var lblName = DarkLabel("Player Name", 10, Color.FromArgb(160, 160, 175));
             var lblPin = DarkLabel("PIN", 10, Color.FromArgb(160, 160, 175));
             var btnLogin = DarkButton("Login", COLOR_ACCENT);
             MakeGradientButton(btnLogin);
             _lblError = DarkLabel("", 10, C(COLOR_ERROR));
-            _lblError.MaximumSize = new Size(320, 60);
+            _lblError.MaximumSize = new Size(260, 60);
             var btnAdminNote = DarkLabel("No account? Ask the cashier to create one", 9, Color.FromArgb(110, 110, 125));
             _lblStatus = DarkLabel("", 13, Color.White, true);
-            _lblStatus.MaximumSize = new Size(320, 90);
+            _lblStatus.MaximumSize = new Size(260, 90);
             _lblStatus.Visible = false;
 
             btnLogin.Click += async (_, _) => await DoLoginAsync();
@@ -1314,17 +1330,17 @@ try
             inputPin.Location = new Point(0, loginY);
             loginY += 56;
             btnLogin.Location = new Point(0, loginY);
-            btnLogin.Size = new Size(340, 46);
-            loginY += 62;
+            btnLogin.Size = new Size(280, 44);
+            loginY += 56;
             _lblError.Location = new Point(0, loginY);
-            loginY += 52;
+            loginY += 46;
             _lblStatus.Location = new Point(0, loginY);
-            btnAdminNote.Location = new Point(0, 510);
+            btnAdminNote.Location = new Point(0, 410);
 
             _loginPanel.Controls.AddRange(new Control[] { lblName, inputName, lblPin, inputPin, btnLogin, _lblError, _lblStatus, btnAdminNote });
 
-            // ---- PAYMENT PANEL ----
-            _paymentPanel = new Panel { BackColor = C(COLOR_CARD), Size = new Size(340, 560) };
+            // ---- PAYMENT PANEL ---- (compact, transparent)
+            _paymentPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 440) };
             _lblUser = DarkLabel("", 13, Color.White, true);
             _avatar = new PictureBox
             {
@@ -1358,7 +1374,7 @@ try
             {
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = true,
-                Size = new Size(340, 86),
+                Size = new Size(280, 86),
                 BackColor = Color.Transparent
             };
             _lblTime = DarkLabel("", 12, C(COLOR_GREEN), true);
@@ -1366,7 +1382,7 @@ try
             MakeGradientButton(_btnStart);
             _btnStart.Click += async (_, _) => await DoStartAsync();
             _lblStartError = DarkLabel("", 10, C(COLOR_ERROR));
-            _lblStartError.MaximumSize = new Size(320, 60);
+            _lblStartError.MaximumSize = new Size(260, 60);
             var btnLogout = DarkButton("Back", "#334155");
             RoundButton(btnLogout, 10);
             btnLogout.Click += (_, _) => ShowLogin();
@@ -1380,32 +1396,32 @@ try
             _lblResume.Location = new Point(0, payY);
             payY += 20;
             _btnResume.Location = new Point(0, payY);
-            _btnResume.Size = new Size(340, 38);
-            payY += 50;
+            _btnResume.Size = new Size(280, 36);
+            payY += 46;
             _lblCredit.Location = new Point(0, payY);
-            payY += 20;
+            payY += 18;
             _btnCredit.Location = new Point(0, payY);
-            _btnCredit.Size = new Size(340, 38);
-            payY += 50;
+            _btnCredit.Size = new Size(280, 36);
+            payY += 46;
             lblPayWith.Location = new Point(0, payY);
-            payY += 22;
+            payY += 20;
             _btnPoints.Location = new Point(0, payY);
-            _btnPoints.Size = new Size(166, 40);
-            _btnGfunds.Location = new Point(174, payY);
-            _btnGfunds.Size = new Size(166, 40);
-            payY += 52;
+            _btnPoints.Size = new Size(136, 38);
+            _btnGfunds.Location = new Point(144, payY);
+            _btnGfunds.Size = new Size(136, 38);
+            payY += 48;
             lblAmount.Location = new Point(0, payY);
-            payY += 22;
+            payY += 20;
             _amountPanel.Location = new Point(0, payY);
             payY += 88;
             _lblTime.Location = new Point(0, payY);
-            payY += 28;
+            payY += 26;
             _btnStart.Location = new Point(0, payY);
-            _btnStart.Size = new Size(340, 42);
-            payY += 54;
+            _btnStart.Size = new Size(280, 40);
+            payY += 52;
             _lblStartError.Location = new Point(0, payY);
-            btnLogout.Location = new Point(0, 510);
-            btnLogout.Size = new Size(340, 36);
+            btnLogout.Location = new Point(0, 410);
+            btnLogout.Size = new Size(280, 34);
 
             _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, _lblCredit, _btnCredit, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, btnLogout });
 
@@ -1413,8 +1429,8 @@ try
             _card.Controls.Add(_loginPanel);
             _card.Controls.Add(_paymentPanel);
 
-            _loginPanel.Location = new Point(20, 20);
-            _paymentPanel.Location = new Point(20, 20);
+            _loginPanel.Location = new Point(20, 18);
+            _paymentPanel.Location = new Point(20, 18);
             _paymentPanel.Visible = false;
 
             Resize += (_, _) => CenterCard(titleGame, titlePoint, stationLine, hint);
@@ -1423,14 +1439,18 @@ try
 
         private void CenterCard(Control titleGame, Control titlePoint, Control stationLine, Control hint)
         {
-            var cx = Width / 2;
+            const int LEFT_MARGIN = 72;
+            int cardX = LEFT_MARGIN;
+            int cardY = Height / 2 - _card.Height / 2;
+            int titleY = Math.Max(20, cardY - 110);
             var titleWidth = titleGame.Width + 4 + titlePoint.Width;
-            var titleY = Math.Max(20, Height / 2 - 320);
-            titleGame.Location = new Point(cx - titleWidth / 2, titleY);
+            // Keep titles left-aligned with card
+            titleGame.Location = new Point(cardX, titleY);
             titlePoint.Location = new Point(titleGame.Right + 4, titleY);
-            stationLine.Location = new Point(cx - stationLine.Width / 2, titleGame.Bottom + 10);
-            hint.Location = new Point(cx - hint.Width / 2, stationLine.Bottom + 8);
-            _card.Location = new Point(cx - _card.Width / 2, hint.Bottom + 20);
+            stationLine.Location = new Point(cardX, titleGame.Bottom + 10);
+            hint.Location = new Point(cardX, stationLine.Bottom + 8);
+            _card.Location = new Point(cardX, cardY);
+            _card.Invalidate();
         }
 
         protected override void OnLoad(EventArgs e)
@@ -1796,7 +1816,7 @@ try
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            PaintDarkOverlay(this, e, 150);
+            PaintDarkOverlay(this, e, 90);
         }
     }
 
@@ -2632,6 +2652,7 @@ try
                 using var resp = await _controller.Http.PostAsJsonAsync("api/sessions/share", new
                 {
                     source_user_id = userId,
+                    source_station = _controller.StationName,
                     target_name = _targetName,
                     minutes = _selectedMinutes
                 });

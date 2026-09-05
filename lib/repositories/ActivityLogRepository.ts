@@ -143,4 +143,38 @@ export class ActivityLogRepository {
 
     return (data as ActivityLogEntry[]) || [];
   }
+
+  async getTopSharers(fromDate?: string, toDate?: string, limit = 10): Promise<{ actor_name: string; share_count: number; total_minutes: number }[]> {
+    let query = supabase
+      .from("activity_log")
+      .select("actor_name, details")
+      .eq("action", "session_share")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+
+    if (fromDate) {
+      const from = new Date(fromDate);
+      if (!isNaN(from.getTime())) query = query.gte("created_at", from.toISOString());
+    }
+    if (toDate) {
+      const to = new Date(toDate);
+      if (!isNaN(to.getTime())) {
+        to.setHours(23, 59, 59, 999);
+        query = query.lte("created_at", to.toISOString());
+      }
+    }
+
+    const { data } = await query;
+    const byGiver = new Map<string, { share_count: number; total_minutes: number }>();
+    for (const row of (data as unknown as { actor_name: string; details: { minutes?: number } }[]) || []) {
+      const cur = byGiver.get(row.actor_name) ?? { share_count: 0, total_minutes: 0 };
+      cur.share_count += 1;
+      cur.total_minutes += Number(row.details?.minutes || 0);
+      byGiver.set(row.actor_name, cur);
+    }
+    return [...byGiver.entries()]
+      .map(([actor_name, v]) => ({ actor_name, ...v }))
+      .sort((a, b) => b.share_count - a.share_count)
+      .slice(0, limit);
+  }
 }

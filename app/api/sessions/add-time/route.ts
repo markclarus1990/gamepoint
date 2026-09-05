@@ -23,15 +23,15 @@ export async function POST(req: Request) {
     return Response.json({ error: result.error }, { status: 400 });
   }
 
-  // Log time extension as a session_start variant with add-time context
-  void activityLog.logSessionStart(
-    result.user.name,
-    station_name,
-    payment,
-    payment === "gfunds" ? Number(gfunds) || 0 : 0,
-    payment === "gfunds" ? Number(gfunds) || 0 : 0,
-    payment === "points" ? Number(points) || 0 : 0
-  );
+  const gfundsUsed = payment === "gfunds" ? Number(gfunds) || 0 : 0;
+  const pointsUsed = payment === "points" ? Number(points) || 0 : 0;
+  const minutesAdded = payment === "gfunds" ? gfundsUsed * 4 : pointsUsed ? (pointsUsed / 20) * 8 : 0;
+
+  void activityLog.logAddTime(result.user.name, station_name, payment, minutesAdded, {
+    gfundsUsed,
+    pointsUsed,
+    remaining_seconds: result.remaining_seconds,
+  });
 
   return Response.json(result);
 }

@@ -32,14 +32,19 @@ export async function POST(req: Request) {
   }
 
   let actorName = "unknown";
+  let resumeSeconds = 0;
   try {
     const u = await userRepo.findById(user_id);
     if (u?.name) actorName = u.name;
+    resumeSeconds = result.remaining_seconds;
   } catch {
     // ignore
   }
 
-  void activityLog.logSessionResume(actorName, station_name);
+  void activityLog.logSessionResume(actorName, station_name, {
+    resume_seconds: resumeSeconds,
+    remaining_seconds: result.remaining_seconds,
+  });
 
   return Response.json(result);
 }
