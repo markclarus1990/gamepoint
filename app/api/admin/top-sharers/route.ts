@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   const limit = Math.min(20, Math.max(1, Number(searchParams.get("limit")) || 10));
 
   try {
-    const top = await activityLogRepo.getTopSharers(from, to, limit);
+    const top = await activityLogRepo.getTopSharers(from ?? undefined, to ?? undefined, limit);
     return Response.json({ top_sharers: top });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to load top sharers";
