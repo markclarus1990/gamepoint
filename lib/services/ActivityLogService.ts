@@ -75,14 +75,33 @@ export class ActivityLogService {
     });
   }
 
-  async logSessionEnd(userName: string, stationName: string): Promise<void> {
+  async logSessionEnd(
+    userName: string,
+    stationName: string,
+    extra?: {
+      status?: string;
+      remaining_seconds?: number;
+      duration_minutes?: number;
+      ended_at?: string;
+      session_id?: string;
+      reason?: string;
+    }
+  ): Promise<void> {
     await this.repo.log({
       actor_name: userName,
       actor_role: "player",
       action: "session_end",
       target_type: "session",
       target_id: `${userName}-${stationName}`,
-      details: { station: stationName },
+      details: {
+        station: stationName,
+        status: extra?.status ?? "Ended",
+        ...(extra?.remaining_seconds !== undefined ? { remaining_seconds: extra.remaining_seconds } : {}),
+        ...(extra?.duration_minutes !== undefined ? { duration_minutes: extra.duration_minutes } : {}),
+        ...(extra?.ended_at ? { ended_at: extra.ended_at } : {}),
+        ...(extra?.session_id ? { session_id: extra.session_id } : {}),
+        ...(extra?.reason ? { reason: extra.reason } : {}),
+      },
     });
   }
 

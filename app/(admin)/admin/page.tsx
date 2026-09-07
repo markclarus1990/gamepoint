@@ -30,6 +30,7 @@ import {
   Trophy,
   AlertTriangle,
 } from "lucide-react";
+import { AdminNumberInput } from "@/components/AdminNumberInput";
 
 type User = {
   id: string;
@@ -46,6 +47,9 @@ type Session = {
   amount: number;
   minutes: number;
   created_at: string;
+  status?: string;
+  ends_at?: string;
+  station_name?: string;
 };
 type Redeem = {
   id: string;
@@ -225,13 +229,21 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
                 : `Payment: ${payment || "credit"}`,
       };
     }
-    case "session_end":
+    case "session_end": {
+      const status = str(d.status) || "Ended";
+      const station = str(d.station);
+      const remaining = d.remaining_seconds !== undefined ? ` • ${Math.floor(num(d.remaining_seconds) / 60)}m ${num(d.remaining_seconds) % 60}s left` : "";
+      const duration = d.duration_minutes !== undefined ? ` • ${num(d.duration_minutes)}m session` : "";
+      const reason = str(d.reason) ? ` • ${str(d.reason)}` : "";
+      // Ended sessions get amber highlight to make status obvious; fallback to zinc for old rows
+      const isEnded = status.toLowerCase() === "ended";
       return {
         Icon: Square,
-        color: "text-zinc-400 bg-zinc-500/10",
-        title: `${log.actor_name} ended session${d.station ? ` on ${str(d.station)}` : ""}`,
-        subtitle: "Session ended",
+        color: isEnded ? "text-amber-400 bg-amber-500/10 border border-amber-500/20" : "text-zinc-400 bg-zinc-500/10",
+        title: `${log.actor_name} — ${status}${station ? ` on ${station}` : ""}${remaining}`,
+        subtitle: `Status: ${status}${duration}${reason} • ${station ? `Station: ${station}` : "Session ended"}`,
       };
+    }
     case "session_logout": {
       const secs = d.remaining_seconds !== undefined ? ` • ${Math.floor(num(d.remaining_seconds) / 60)}m saved` : "";
       const paused = d.was_paused ? " (paused)" : "";
@@ -439,14 +451,16 @@ function formatTimelineItem(item: TimelineItem): FormattedEvent {
     };
   }
   // session
-  return {
-    Icon: Clock,
-    color: "text-purple-400 bg-purple-500/10",
-    title: `Session: ${num(e.minutes)} mins (₱${num(e.amount)})`,
-    subtitle: str(e.station_name)
-      ? `Played on ${str(e.station_name)}`
-      : "Game session",
-  };
+  {
+    const status = str(e.status);
+    const isEnded = status === "completed" || status === "expired" || status.toLowerCase() === "ended";
+    return {
+      Icon: isEnded ? Square : Clock,
+      color: isEnded ? "text-amber-400 bg-amber-500/10 border border-amber-500/20" : "text-purple-400 bg-purple-500/10",
+      title: `Session: ${num(e.minutes)} mins (₱${num(e.amount)})${isEnded ? " • Ended" : status ? ` • ${status}` : ""}`,
+      subtitle: `${isEnded ? "Status: Ended • " : ""}${str(e.station_name) ? `Played on ${str(e.station_name)}` : "Game session"}`,
+    };
+  }
 }
 
 const GRADIENT =
@@ -459,16 +473,16 @@ export default function Admin() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showDeductModal, setShowDeductModal] = useState(false);
-  const [deductAmount, setDeductAmount] = useState(0);
+  const [deductAmount, setDeductAmount] = useState("");
   const [deductType, setDeductType] = useState<"points" | "gfunds">("points");
-  const [loadGfunds, setLoadGfunds] = useState(0);
-  const [loadPoints, setLoadPoints] = useState(0);
+  const [loadGfunds, setLoadGfunds] = useState("");
+  const [loadPoints, setLoadPoints] = useState("");
   const [stations, setStations] = useState<Station[]>([]);
   const [newStationName, setNewStationName] = useState("");
   const [copiedKey, setCopiedKey] = useState("");
   const [openStation, setOpenStation] = useState<Station | null>(null);
-  const [openPesos, setOpenPesos] = useState(0);
-  const [openMinutes, setOpenMinutes] = useState(0);
+  const [openPesos, setOpenPesos] = useState("");
+  const [openMinutes, setOpenMinutes] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [subTab, setSubTab] = useState<"sessions" | "points" | "funds" | "activity">("sessions");
@@ -625,7 +639,8 @@ export default function Admin() {
   };
 
   const deductPoints = async () => {
-    if (!selectedUser || deductAmount <= 0 || busyAction) return;
+    const amount = Number(deductAmount) || 0;
+    if (!selectedUser || amount <= 0 || busyAction) return;
     setBusyAction("deduct");
     try {
       const endpoint =
@@ -635,13 +650,13 @@ export default function Admin() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           deductType === "gfunds"
-            ? { name: selectedUser.name, gfunds: deductAmount }
-            : { name: selectedUser.name, points: deductAmount }
+            ? { name: selectedUser.name, gfunds: amount }
+            : { name: selectedUser.name, points: amount }
         ),
       });
       const data = await res.json();
       setShowDeductModal(false);
-      setDeductAmount(0);
+      setDeductAmount("");
       loadUsers();
       loadSessions(selectedUser.id);
       notify(data.error || `Deducted from ${selectedUser.name}.`);
@@ -651,7 +666,9 @@ export default function Admin() {
   };
 
   const loadAccount = async () => {
-    if (!selectedUser || (loadGfunds <= 0 && loadPoints <= 0) || busyAction) return;
+    const g = Number(loadGfunds) || 0;
+    const p = Number(loadPoints) || 0;
+    if (!selectedUser || (g <= 0 && p <= 0) || busyAction) return;
     setBusyAction("load");
     try {
       const res = await fetch("/api/admin/load", {
@@ -659,8 +676,8 @@ export default function Admin() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_id: selectedUser.id,
-          gfunds: loadGfunds,
-          points: loadPoints,
+          gfunds: g,
+          points: p,
         }),
       });
       const data = await res.json();
@@ -669,8 +686,8 @@ export default function Admin() {
         return;
       }
       setShowModal(false);
-      setLoadGfunds(0);
-      setLoadPoints(0);
+      setLoadGfunds("");
+      setLoadPoints("");
       loadUsers();
       notify(`Account loaded for ${selectedUser.name}.`);
     } finally {
@@ -755,13 +772,14 @@ export default function Admin() {
   };
 
   const openStationTime = async () => {
-    if (!openStation || openMinutes <= 0) return;
+    const mins = Number(openMinutes) || 0;
+    if (!openStation || mins <= 0) return;
     const res = await fetch("/api/sessions/open", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         station_name: openStation.name,
-        minutes: openMinutes,
+        minutes: mins,
       }),
     });
     const data = await res.json();
@@ -770,10 +788,10 @@ export default function Admin() {
       return;
     }
     setOpenStation(null);
-    setOpenPesos(0);
-    setOpenMinutes(0);
+    setOpenPesos("");
+    setOpenMinutes("");
     loadStations();
-    notify(`${openMinutes} mins opened on ${openStation.name}.`);
+    notify(`${mins} mins opened on ${openStation.name}.`);
   };
 
   const copyKey = async (key: string) => {
@@ -1058,8 +1076,8 @@ export default function Admin() {
                         <button
                           onClick={() => {
                             setOpenStation(s);
-                            setOpenPesos(0);
-                            setOpenMinutes(0);
+                            setOpenPesos("");
+                            setOpenMinutes("");
                           }}
                           disabled={!s.online}
                           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 transition-colors"
@@ -1591,19 +1609,30 @@ export default function Admin() {
                         {label}
                       </div>
                       <div className="space-y-1.5">
-                        {items.map((s, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between bg-zinc-900/50 border border-white/5 px-3 py-2.5 rounded-xl"
-                          >
-                            <div className="text-sm font-medium">
-                              ₱{s.amount} • {s.minutes} mins
+                        {items.map((s, i) => {
+                          const st = (s.status ?? "completed").toLowerCase();
+                          const isEnded = st === "completed" || st === "expired" || st === "ended";
+                          const label = isEnded ? "Ended" : s.status || "—";
+                          return (
+                            <div
+                              key={i}
+                              className={`flex items-center justify-between bg-zinc-900/50 border px-3 py-2.5 rounded-xl ${isEnded ? "border-amber-500/20 bg-amber-500/[0.03]" : "border-white/5"}`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="text-sm font-medium">
+                                  ₱{s.amount} • {s.minutes} mins
+                                </div>
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide border ${isEnded ? "bg-amber-500/15 text-amber-400 border-amber-500/20" : "bg-zinc-800 text-zinc-400 border-white/5"}`}>
+                                  {label}
+                                </span>
+                                {s.station_name ? <span className="text-[11px] text-zinc-500">• {s.station_name}</span> : null}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {new Date(s.created_at).toLocaleTimeString()}
+                              </div>
                             </div>
-                            <div className="text-xs text-zinc-500">
-                              {new Date(s.created_at).toLocaleTimeString()}
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div className="text-xs text-purple-400 mt-2 flex justify-between font-medium">
                         <span>Total: {totalMinutes} mins</span>
@@ -1683,6 +1712,12 @@ export default function Admin() {
 
           {/* Quick filters for stealing detection */}
           <div className="flex flex-wrap gap-1.5 mb-4">
+            <button
+              onClick={() => setActionFilter("session_end")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${actionFilter === "session_end" ? "bg-amber-500 text-white" : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20"}`}
+            >
+              Ended
+            </button>
             <button
               onClick={() => setActionFilter("session_share")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${actionFilter === "session_share" ? "bg-sky-500 text-white" : "bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"}`}
@@ -1792,6 +1827,7 @@ export default function Admin() {
                     <th className="p-3 text-left">Time</th>
                     <th className="p-3 text-left">Event</th>
                     <th className="p-3 text-left">From → To</th>
+                    <th className="p-3 text-left">Status</th>
                     <th className="p-3 text-left">Details</th>
                   </tr>
                 </thead>
@@ -1815,8 +1851,10 @@ export default function Admin() {
                           ? `${log.actor_name} → ${log.target_id}`
                           : log.actor_name;
                     const isShareRow = log.action === "session_share";
+                    const isEndedRow = log.action === "session_end";
+                    const statusLabel = isEndedRow ? String((log.details as Record<string, unknown> | null)?.status ?? "Ended") : "—";
                     return (
-                      <tr key={log.id} className={`border-b border-white/5 hover:bg-zinc-900/50 ${isShareRow ? "bg-sky-500/[0.04]" : ""}`}>
+                      <tr key={log.id} className={`border-b border-white/5 hover:bg-zinc-900/50 ${isShareRow ? "bg-sky-500/[0.04]" : ""} ${isEndedRow ? "bg-amber-500/[0.04]" : ""}`}>
                         <td className="p-3 whitespace-nowrap">
                           {new Date(log.created_at).toLocaleTimeString()}
                         </td>
@@ -1830,6 +1868,15 @@ export default function Admin() {
                         </td>
                         <td className="p-3 font-medium whitespace-nowrap">
                           {parties}
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          {isEndedRow ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                              {statusLabel}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600 text-xs">—</span>
+                          )}
                         </td>
                         <td className="p-3 text-[11px]">
                           {f.subtitle}
@@ -1894,8 +1941,7 @@ export default function Admin() {
               {formatRemaining(selectedUser.total_available_seconds || 0)}
             </div>
 
-            <input
-              type="number"
+            <AdminNumberInput
               min={1}
               placeholder={
                 deductType === "gfunds"
@@ -1903,13 +1949,13 @@ export default function Admin() {
                   : "Enter points to deduct"
               }
               value={deductAmount}
-              onChange={(e) => setDeductAmount(Number(e.target.value))}
+              onChange={setDeductAmount}
               className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-red-500/60"
             />
 
             <button
               onClick={deductPoints}
-              disabled={deductAmount <= 0 || busyAction === "deduct"}
+              disabled={(Number(deductAmount) || 0) <= 0 || busyAction === "deduct"}
               className="w-full py-2.5 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
             >
               {busyAction === "deduct" ? (
@@ -1923,7 +1969,7 @@ export default function Admin() {
             <button
               onClick={() => {
                 setShowDeductModal(false);
-                setDeductAmount(0);
+                setDeductAmount("");
               }}
               className="w-full py-2 text-sm text-zinc-400 hover:text-white"
             >
@@ -1961,22 +2007,20 @@ export default function Admin() {
             </div>
 
             <div>
-              <input
-                type="number"
+              <AdminNumberInput
                 placeholder="Gfunds (pesos)"
                 value={loadGfunds}
-                onChange={(e) => setLoadGfunds(Number(e.target.value))}
+                onChange={setLoadGfunds}
                 className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
               <div className="text-xs text-zinc-500 mt-1">1₱ = 4 mins of gfunds time</div>
             </div>
 
             <div>
-              <input
-                type="number"
+              <AdminNumberInput
                 placeholder="Bonus gamepoints"
                 value={loadPoints}
-                onChange={(e) => setLoadPoints(Number(e.target.value))}
+                onChange={setLoadPoints}
                 className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
               <div className="text-xs text-zinc-500 mt-1">20 pts = 8 mins of game time</div>
@@ -1984,7 +2028,7 @@ export default function Admin() {
 
             <button
               onClick={loadAccount}
-              disabled={busyAction === "load" || (loadGfunds <= 0 && loadPoints <= 0)}
+              disabled={busyAction === "load" || ((Number(loadGfunds) || 0) <= 0 && (Number(loadPoints) || 0) <= 0)}
               className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 transition-all flex items-center justify-center gap-2"
             >
               {busyAction === "load" ? (
@@ -1998,8 +2042,8 @@ export default function Admin() {
             <button
               onClick={() => {
                 setShowModal(false);
-                setLoadGfunds(0);
-                setLoadPoints(0);
+                setLoadGfunds("");
+                setLoadPoints("");
               }}
               className="w-full py-2 text-sm text-zinc-400 hover:text-white"
             >
@@ -2027,25 +2071,29 @@ export default function Admin() {
 
             <div>
               <div className="text-sm text-zinc-400 mb-1">Amount paid (₱)</div>
-              <input
-                type="number"
+              <AdminNumberInput
+                placeholder="Enter amount paid (₱)"
                 value={openPesos}
-                onChange={(e) => {
-                  const p = Number(e.target.value);
-                  setOpenPesos(p);
-                  setOpenMinutes(p * 4);
+                onChange={(v) => {
+                  if (v === "") {
+                    setOpenPesos("");
+                    setOpenMinutes("");
+                  } else {
+                    const p = Number(v) || 0;
+                    setOpenPesos(v);
+                    setOpenMinutes(String(p * 4));
+                  }
                 }}
                 className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
-                placeholder="0"
               />
             </div>
 
             <div>
               <div className="text-sm text-zinc-400 mb-1">Minutes</div>
-              <input
-                type="number"
+              <AdminNumberInput
+                placeholder="Minutes"
                 value={openMinutes}
-                onChange={(e) => setOpenMinutes(Number(e.target.value))}
+                onChange={setOpenMinutes}
                 className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
             </div>
@@ -2055,11 +2103,11 @@ export default function Admin() {
                 <button
                   key={m}
                   onClick={() => {
-                    setOpenMinutes(m);
-                    setOpenPesos(m / 4);
+                    setOpenMinutes(String(m));
+                    setOpenPesos(String(m / 4));
                   }}
                   className={`py-2 rounded-xl text-xs font-medium transition-colors ${
-                    openMinutes === m
+                    (Number(openMinutes) || 0) === m
                       ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white"
                       : "bg-zinc-800/70 text-zinc-400 hover:text-white"
                   }`}
@@ -2071,16 +2119,16 @@ export default function Admin() {
 
             <button
               onClick={openStationTime}
-              disabled={openMinutes <= 0}
+              disabled={(Number(openMinutes) || 0) <= 0}
               className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 transition-all"
             >
-              Open {openMinutes > 0 ? `${openMinutes} mins` : "Time"}
+              Open {(Number(openMinutes) || 0) > 0 ? `${Number(openMinutes)} mins` : "Time"}
             </button>
             <button
               onClick={() => {
                 setOpenStation(null);
-                setOpenPesos(0);
-                setOpenMinutes(0);
+                setOpenPesos("");
+                setOpenMinutes("");
               }}
               className="w-full py-2 text-sm text-zinc-400 hover:text-white"
             >
@@ -2525,11 +2573,12 @@ function ShareModal({
 }) {
   const [targetName, setTargetName] = useState("");
   const [showList, setShowList] = useState(false);
-  const [minutes, setMinutes] = useState(0);
+  const [minutes, setMinutes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const remaining = Math.floor(station.remaining_seconds / 60);
+  const minutesNum = Number(minutes) || 0;
 
   const filtered = users
     .filter(
@@ -2540,7 +2589,7 @@ function ShareModal({
     .slice(0, 8);
 
   const share = async () => {
-    if (!targetName.trim() || minutes <= 0) return;
+    if (!targetName.trim() || minutesNum <= 0) return;
     setBusy(true);
     setError(null);
     try {
@@ -2550,7 +2599,7 @@ function ShareModal({
         body: JSON.stringify({
           source_station: station.name,
           target_name: targetName.trim(),
-          minutes,
+          minutes: minutesNum,
         }),
       });
       const data = await res.json();
@@ -2561,11 +2610,11 @@ function ShareModal({
       }
       if (data.target_session_seconds != null) {
         onDone(
-          `${targetName.trim()} received ${minutes} min — added to their active session${data.target_station ? ` on ${data.target_station}` : ""} (${formatRemainingShort(data.target_session_seconds)} left).`
+          `${targetName.trim()} received ${minutesNum} min — added to their active session${data.target_station ? ` on ${data.target_station}` : ""} (${formatRemainingShort(data.target_session_seconds)} left).`
         );
       } else {
         onDone(
-          `${targetName.trim()} received ${minutes} min as free time credit (${data.target_credit} min total).`
+          `${targetName.trim()} received ${minutesNum} min as free time credit (${data.target_credit} min total).`
         );
       }
     } catch {
@@ -2635,10 +2684,10 @@ function ShareModal({
             {[15, 30, 60, 120].map((m) => (
               <button
                 key={m}
-                onClick={() => setMinutes(m)}
+                onClick={() => setMinutes(String(m))}
                 disabled={m > remaining}
                 className={`py-2 rounded-xl text-xs font-medium transition-colors disabled:opacity-30 ${
-                  minutes === m
+                  minutesNum === m
                     ? "bg-gradient-to-r from-teal-600 to-emerald-600 text-white"
                     : "bg-zinc-800/70 text-zinc-400 hover:text-white"
                 }`}
@@ -2647,20 +2696,33 @@ function ShareModal({
               </button>
             ))}
           </div>
-          <input
-            type="number"
+          <AdminNumberInput
             min={1}
             max={Math.max(1, remaining)}
             placeholder="Custom minutes"
-            value={minutes || ""}
-            onChange={(e) => setMinutes(Math.min(remaining, Math.max(1, Number(e.target.value) || 0)))}
+            value={minutes}
+            onChange={(v) => {
+              if (v === "") {
+                setMinutes("");
+                return;
+              }
+              const n = Number(v) || 0;
+              const clamped = Math.min(remaining, Math.max(1, n));
+              // Only update if input is non-empty; if user typed "0" we clamp to 1 but show empty? keep "1"
+              // For intermediate empty, keep empty
+              if (v === "" || n === 0) {
+                setMinutes(v);
+              } else {
+                setMinutes(String(clamped));
+              }
+            }}
             className="w-full mt-2 px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-teal-500/60"
           />
         </div>
 
-        {targetName.trim() && minutes > 0 && (
+        {targetName.trim() && minutesNum > 0 && (
           <div className="text-xs text-teal-400 font-medium">
-            {minutes} min → {targetName.trim()} (added to their session if
+            {minutesNum} min → {targetName.trim()} (added to their session if
             they are playing now, otherwise saved as free time credit)
           </div>
         )}
@@ -2669,7 +2731,7 @@ function ShareModal({
 
         <button
           onClick={share}
-          disabled={busy || !targetName.trim() || minutes <= 0}
+          disabled={busy || !targetName.trim() || minutesNum <= 0}
           className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 disabled:opacity-40 transition-all"
         >
           {busy ? (
