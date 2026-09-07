@@ -297,3 +297,61 @@ export interface IncomeRecentLoad {
   description: string | null;
   created_at: string;
 }
+
+export type TournamentType = "nba" | "tekken";
+export type TournamentRound = "First Round" | "Semifinals" | "Conference Finals" | "Finals";
+
+export interface TournamentRegistration {
+  id: string;
+  user_id: string;
+  team: string | null;
+  tournament_type: TournamentType;
+  conference: "East" | "West" | null;
+  division: string | null;
+  created_at: string;
+}
+
+export interface TournamentMatch {
+  id: string;
+  match_id: string;
+  tournament_type: TournamentType;
+  round: TournamentRound;
+  conference: "East" | "West" | null;
+  seed1: number | null;
+  seed2: number | null;
+  team1: string | null;
+  team2: string | null;
+  team1_user_id: string | null;
+  team2_user_id: string | null;
+  winner: string | null;
+  winner_user_id: string | null;
+  loser: string | null;
+  status: "scheduled" | "completed";
+  scheduled_date: string | null;
+  created_at: string;
+}
+
+export interface BracketPlayer {
+  id: string;
+  team: string;
+  seed: number;
+  conference: "East" | "West";
+}
+
+export interface Bracket {
+  east: {
+    name: string;
+    players: BracketPlayer[];
+    firstRoundMatchups: Array<{ seed: number; opponentSeed: number; team1: string; team2: string; round: string; matchId: string }>;
+    conferenceFinals: null;
+    champion: null;
+  };
+  west: {
+    name: string;
+    players: BracketPlayer[];
+    firstRoundMatchups: Array<{ seed: number; opponentSeed: number; team1: string; team2: string; round: string; matchId: string }>;
+    conferenceFinals: null;
+    champion: null;
+  };
+  finals: { eastWinner: null; westWinner: null; champion: null };
+}

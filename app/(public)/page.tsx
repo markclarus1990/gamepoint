@@ -33,7 +33,7 @@ const features = [
   {
     icon: Swords,
     title: "Tournaments",
-    desc: "Compete in Tekken tournaments and rise through the ranks to become champion.",
+    desc: "Join NBA Playoffs (16 teams, 1 player = 1 team) or Tekken — compete and become champion.",
   },
   {
     icon: BarChart3,
@@ -100,10 +100,10 @@ export default function LandingPage() {
               Get Started <ChevronRight className="w-4 h-4" />
             </Link>
             <Link
-              href="/tekken"
-              className="px-8 py-3.5 rounded-xl font-bold text-white border border-zinc-700 hover:border-pink-500/50 bg-zinc-900/50 backdrop-blur-sm hover:bg-zinc-900/80 transition-all flex items-center gap-2"
+              href="/nba"
+              className="px-8 py-3.5 rounded-xl font-bold text-white border border-zinc-700 hover:border-orange-500/50 bg-zinc-900/50 backdrop-blur-sm hover:bg-zinc-900/80 transition-all flex items-center gap-2"
             >
-              <Swords className="w-4 h-4" /> View Tournaments
+              <Swords className="w-4 h-4" /> View NBA Playoffs
             </Link>
           </div>
         </div>
@@ -141,69 +141,61 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* TOURNAMENT PREVIEW */}
+      {/* TOURNAMENTS PREVIEW — NBA primary */}
       <section className="py-20 md:py-28 px-4 bg-black">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
             <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 backdrop-blur-md px-4 py-1.5 text-sm text-orange-400 mb-4">
-              <Swords className="w-3.5 h-3.5" /> Active Tournament
+              <Swords className="w-3.5 h-3.5" /> Active Tournaments
             </div>
             <h2 className="text-3xl md:text-4xl font-black text-white mb-3">
-              TEKKEN 7 — SEASON 1
+              CHOOSE YOUR <span className="text-orange-400">ARENA</span>
             </h2>
             <p className="text-gray-300 max-w-xl mx-auto">
-              Battle every competitor in a full Round Robin format.
+              NBA Playoffs or Tekken — pick your competition.
             </p>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-6 lg:gap-8">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 backdrop-blur-md p-6 md:p-8">
-              <p className="text-gray-200 leading-relaxed mb-6">
-                The player with the best overall record will be crowned the first
-                GamePoint Tekken 7 Champion. Entry fee is ₱50 — sign up now at
-                the counter to claim your slot.
+            {/* NBA Card */}
+            <div className="rounded-2xl border border-orange-500/20 bg-gradient-to-br from-orange-600/20 via-red-600/10 to-zinc-900/60 backdrop-blur-md p-6 md:p-8 relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-bold text-orange-300 mb-3">🏀 NBA PLAYOFFS — SEASON 1</div>
+              <h3 className="text-2xl font-black text-white mb-2">
+                NBA — <span className="text-orange-400">16 Teams</span>
+              </h3>
+              <p className="text-gray-200 leading-relaxed mb-4 text-sm">
+                1 player = 1 team, first-come gets fav team. First 8 → East, next 8 → West. Auto-starts at 16 with bracket 1v8, 4v5, 3v6, 2v7.
               </p>
-              <div className="flex flex-wrap gap-3 mb-6">
-                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 backdrop-blur-sm px-4 py-2 text-sm text-gray-200">
-                  Entry Fee ₱50
-                </span>
-                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 backdrop-blur-sm px-4 py-2 text-sm text-gray-200">
-                  Round Robin
-                </span>
-                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 backdrop-blur-sm px-4 py-2 text-sm text-gray-200">
-                  8 Players
-                </span>
+              <div className="flex flex-wrap gap-2 mb-6">
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">1 Player = 1 Team</span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">First-Come Picks</span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">16 Players</span>
+                <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1.5 text-xs text-orange-300">Auto-Start at 16</span>
               </div>
-              <Link
-                href="/tekken"
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 transition-all shadow-lg shadow-red-500/20 hover:shadow-red-500/40"
-              >
-                Full Details <ChevronRight className="w-4 h-4" />
+              <Link href="/nba" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 shadow-lg shadow-orange-500/20">
+                Join NBA Playoffs <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
 
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 backdrop-blur-md p-6 md:p-8 text-center shadow-2xl shadow-red-500/5 hover:shadow-red-500/10 transition-shadow">
-              <div className="text-5xl md:text-6xl mb-4">🏆</div>
-              <h3 className="text-xl md:text-2xl font-bold text-white mb-2">
-                Champion <span className="text-orange-400">TBD</span>
+            {/* Tekken Card */}
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 backdrop-blur-md p-6 md:p-8">
+              <div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-300 mb-3">🥊 TEKKEN 7 — SEASON 1</div>
+              <h3 className="text-2xl font-black text-white mb-2">
+                TEKKEN 7 — <span className="text-red-400">8 Players</span>
               </h3>
-              <p className="text-sm text-gray-300 mb-6">
-                Season 1 registration is open. Sign up now to claim your spot.
+              <p className="text-gray-200 leading-relaxed mb-4 text-sm">
+                Battle every competitor in a full Round Robin format. The player with the best overall record will be crowned champion. Entry ₱50.
               </p>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-xl bg-zinc-900/80 border border-zinc-800 p-3">
-                  <div className="text-2xl font-bold text-white">8</div>
-                  <div className="text-xs text-gray-400 mt-1">Slots</div>
-                </div>
-                <div className="rounded-xl bg-zinc-900/80 border border-zinc-800 p-3">
-                  <div className="text-2xl font-bold text-white">28</div>
-                  <div className="text-xs text-gray-400 mt-1">Matches</div>
-                </div>
-                <div className="rounded-xl bg-zinc-900/80 border border-zinc-800 p-3">
-                  <div className="text-2xl font-bold text-yellow-400">🏆</div>
-                  <div className="text-xs text-gray-400 mt-1">Champion</div>
-                </div>
+              <div className="flex flex-wrap gap-2 mb-6">
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">Entry Fee ₱50</span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">Round Robin</span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">8 Players</span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">28 Matches</span>
               </div>
+              <Link href="/tekken" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 shadow-lg shadow-red-500/20">
+                Full Tekken Details <ChevronRight className="w-4 h-4" />
+              </Link>
             </div>
           </div>
         </div>

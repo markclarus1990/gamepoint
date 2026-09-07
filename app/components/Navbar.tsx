@@ -6,8 +6,9 @@ import Link from "next/link";
 
 const links = [
   { label: "Home", href: "/" },
+  { label: "NBA", href: "/nba" },
+  { label: "Tekken", href: "/tekken" },
   { label: "Leaderboard", href: "/#top-players" },
-  { label: "Tournaments", href: "/tekken" },
   { label: "About", href: "/#footer" },
 ];
 

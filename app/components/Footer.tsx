@@ -33,8 +33,13 @@ export default function Footer() {
                 </Link>
               </div>
               <div>
+                <Link href="/nba" className="text-gray-400 hover:text-pink-400 transition-colors">
+                  NBA Playoffs
+                </Link>
+              </div>
+              <div>
                 <Link href="/tekken" className="text-gray-400 hover:text-pink-400 transition-colors">
-                  Tournaments
+                  Tekken 7
                 </Link>
               </div>
             </div>

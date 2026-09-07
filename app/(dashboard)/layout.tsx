@@ -68,7 +68,8 @@ export default function DashboardLayout({
     { label: "Dashboard", href: "/home", icon: LayoutDashboard },
     { label: "Marketplace", href: "/marketplace", icon: Store },
     { label: "Messages", href: "/messages", icon: Mail },
-    { label: "Tournaments", href: "/tekken", icon: Swords },
+    { label: "NBA", href: "/nba", icon: Trophy },
+    { label: "Tekken", href: "/tekken", icon: Swords },
     { label: "Leaderboard", href: "/#top-players", icon: Trophy },
   ];
 

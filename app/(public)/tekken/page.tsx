@@ -52,10 +52,19 @@ export default function TekkenPage() {
   }, []);
 
   const fetchData = useCallback(async () => {
-    const { data: regs } = await supabase
-      .from("tournament_registrations")
-      .select("user_id, created_at")
-      .order("created_at", { ascending: true });
+    let regs: Registration[] | null = null;
+    try {
+      const { data, error } = await supabase
+        .from("tournament_registrations")
+        .select("user_id, created_at")
+        .eq("tournament_type", "tekken")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      regs = data as Registration[];
+    } catch {
+      const { data } = await supabase.from("tournament_registrations").select("user_id, created_at").order("created_at", { ascending: true });
+      regs = (data as Registration[]) || [];
+    }
 
     const regArray = regs || [];
     setRegistrations(regArray);
@@ -123,7 +132,7 @@ export default function TekkenPage() {
         const res = await fetch("/api/tournament/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: currentUser.id }),
+          body: JSON.stringify({ user_id: currentUser.id, tournament_type: "tekken" }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -136,7 +145,7 @@ export default function TekkenPage() {
         const res = await fetch("/api/tournament/register", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: currentUser.id }),
+          body: JSON.stringify({ user_id: currentUser.id, tournament_type: "tekken" }),
         });
         const data = await res.json();
         if (!res.ok) {
