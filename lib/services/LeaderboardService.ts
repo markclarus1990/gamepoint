@@ -4,7 +4,7 @@ import type { LeaderboardEntry } from "@/types";
 
 type LeaderboardAccumulator = Record<string, { name: string; total_minutes: number }>;
 
-const EXCLUDED_PLAYERS = new Set(["test", "test2"]);
+const EXCLUDED_PLAYERS = new Set(["test", "test2", "test3", "test4", "test5"]);
 
 export class LeaderboardService {
   private sessionRepo = new SessionRepository();
@@ -22,7 +22,7 @@ export class LeaderboardService {
     }, {});
 
     const sorted = Object.values(grouped)
-      .filter((u) => !EXCLUDED_PLAYERS.has(u.name.toLowerCase()))
+      .filter((u) => !EXCLUDED_PLAYERS.has(u.name.toLowerCase().trim()))
       .sort((a, b) => b.total_minutes - a.total_minutes);
 
     const names = sorted.map((u) => u.name);
