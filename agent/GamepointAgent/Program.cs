@@ -1238,12 +1238,15 @@ try
         private readonly Button _btnResume;
         private readonly Label _lblCredit;
         private readonly Button _btnCredit;
+        private readonly Label _lblPayWith;
         private readonly Button _btnPoints;
         private readonly Button _btnGfunds;
+        private readonly Label _lblAmount;
         private readonly FlowLayoutPanel _amountPanel;
         private readonly Label _lblTime;
         private readonly Label _lblStartError;
         private readonly Button _btnStart;
+        private readonly Button _btnLogout;
 
         private LoginUser? _user;
         private string _payment = "points";
@@ -1279,7 +1282,7 @@ try
             _card = new Panel
             {
                 BackColor = Color.Transparent,
-                Size = new Size(320, 480),
+                Size = new Size(320, 560),
                 Anchor = AnchorStyles.None
             };
             _card.Region = RoundedRegion(_card, 14);
@@ -1340,8 +1343,9 @@ try
             _loginPanel.Controls.AddRange(new Control[] { lblName, inputName, lblPin, inputPin, btnLogin, _lblError, _lblStatus, btnAdminNote });
 
             // ---- PAYMENT PANEL ---- (compact, transparent)
-            _paymentPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 440) };
+            _paymentPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 520), AutoScroll = true };
             _lblUser = DarkLabel("", 13, Color.White, true);
+            _lblUser.MaximumSize = new Size(220, 0);
             _avatar = new PictureBox
             {
                 Size = new Size(44, 44),
@@ -1350,31 +1354,37 @@ try
                 Visible = false
             };
             _lblBalances = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
+            _lblBalances.MaximumSize = new Size(280, 0);
             _lblResume = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
+            _lblResume.MaximumSize = new Size(280, 0);
             _lblResume.Visible = false;
             _btnResume = DarkButton("Resume Session", COLOR_GREEN);
             MakeGradientButton(_btnResume);
             _btnResume.Visible = false;
             _btnResume.Click += async (_, _) => await DoResumeAsync();
             _lblCredit = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
+            _lblCredit.MaximumSize = new Size(280, 0);
             _lblCredit.Visible = false;
             _btnCredit = DarkButton("Continue with Shared Time", COLOR_GREEN);
             MakeGradientButton(_btnCredit, Color.FromArgb(13, 148, 136), Color.FromArgb(5, 150, 105));
             _btnCredit.Visible = false;
             _btnCredit.Click += async (_, _) => await DoContinueCreditAsync();
-            var lblPayWith = DarkLabel("Pay with:", 10, Color.FromArgb(160, 160, 175));
+            _lblPayWith = DarkLabel("Pay with:", 10, Color.FromArgb(160, 160, 175));
             _btnPoints = DarkButton("Gamepoints", COLOR_ACCENT);
             _btnGfunds = DarkButton("Gfunds", COLOR_INPUT);
             RoundButton(_btnPoints, 10);
             RoundButton(_btnGfunds, 10);
             _btnPoints.Click += (_, _) => SetPayment("points");
             _btnGfunds.Click += (_, _) => SetPayment("gfunds");
-            var lblAmount = DarkLabel("Amount:", 10, Color.FromArgb(160, 160, 175));
+            _lblAmount = DarkLabel("Amount:", 10, Color.FromArgb(160, 160, 175));
             _amountPanel = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = true,
                 Size = new Size(280, 86),
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MaximumSize = new Size(280, 120),
                 BackColor = Color.Transparent
             };
             _lblTime = DarkLabel("", 12, C(COLOR_GREEN), true);
@@ -1383,47 +1393,19 @@ try
             _btnStart.Click += async (_, _) => await DoStartAsync();
             _lblStartError = DarkLabel("", 10, C(COLOR_ERROR));
             _lblStartError.MaximumSize = new Size(260, 60);
-            var btnLogout = DarkButton("Back", "#334155");
-            RoundButton(btnLogout, 10);
-            btnLogout.Click += (_, _) => ShowLogin();
+            _btnLogout = DarkButton("Back", "#334155");
+            RoundButton(_btnLogout, 10);
+            _btnLogout.Click += (_, _) => ShowLogin();
 
-            var payY = 8;
-            _avatar.Location = new Point(0, payY);
-            _lblUser.Location = new Point(56, payY + 13);
-            payY += 56;
-            _lblBalances.Location = new Point(0, payY);
-            payY += 28;
-            _lblResume.Location = new Point(0, payY);
-            payY += 20;
-            _btnResume.Location = new Point(0, payY);
             _btnResume.Size = new Size(280, 36);
-            payY += 46;
-            _lblCredit.Location = new Point(0, payY);
-            payY += 18;
-            _btnCredit.Location = new Point(0, payY);
             _btnCredit.Size = new Size(280, 36);
-            payY += 46;
-            lblPayWith.Location = new Point(0, payY);
-            payY += 20;
-            _btnPoints.Location = new Point(0, payY);
             _btnPoints.Size = new Size(136, 38);
-            _btnGfunds.Location = new Point(144, payY);
             _btnGfunds.Size = new Size(136, 38);
-            payY += 48;
-            lblAmount.Location = new Point(0, payY);
-            payY += 20;
-            _amountPanel.Location = new Point(0, payY);
-            payY += 88;
-            _lblTime.Location = new Point(0, payY);
-            payY += 26;
-            _btnStart.Location = new Point(0, payY);
             _btnStart.Size = new Size(280, 40);
-            payY += 52;
-            _lblStartError.Location = new Point(0, payY);
-            btnLogout.Location = new Point(0, 410);
-            btnLogout.Size = new Size(280, 34);
+            _btnLogout.Size = new Size(280, 34);
 
-            _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, _lblCredit, _btnCredit, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, btnLogout });
+            _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, _lblCredit, _btnCredit, _lblPayWith, _btnPoints, _btnGfunds, _lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, _btnLogout });
+            LayoutPaymentPanel();
 
             Controls.AddRange(new Control[] { titleGame, titlePoint, stationLine, hint, _card });
             _card.Controls.Add(_loginPanel);
@@ -1441,7 +1423,7 @@ try
         {
             const int LEFT_MARGIN = 72;
             int cardX = LEFT_MARGIN;
-            int cardY = Height / 2 - _card.Height / 2;
+            int cardY = Math.Max(12, Height / 2 - _card.Height / 2);
             int titleY = Math.Max(20, cardY - 110);
             var titleWidth = titleGame.Width + 4 + titlePoint.Width;
             // Keep titles left-aligned with card
@@ -1451,6 +1433,70 @@ try
             hint.Location = new Point(cardX, stationLine.Bottom + 8);
             _card.Location = new Point(cardX, cardY);
             _card.Invalidate();
+        }
+
+        private void LayoutPaymentPanel()
+        {
+            // Dynamic layout — collapses gaps when resume/credit are hidden.
+            // Fixes: big space between Resume button and "Pay with" that pushed
+            // Start Session off the card, and bottom clipping inside 280×440 panel.
+            if (_paymentPanel is null || _lblPayWith is null || _lblAmount is null || _btnLogout is null) return;
+            _paymentPanel.SuspendLayout();
+            int y = 8;
+            _avatar.Location = new Point(0, y);
+            _lblUser.Location = new Point(56, y + 13);
+            y += 56;
+            _lblBalances.Location = new Point(0, y);
+            y += _lblBalances.Height + 8;
+
+            if (_lblResume.Visible)
+            {
+                _lblResume.Location = new Point(0, y);
+                y += _lblResume.Height + 4;
+            }
+            if (_btnResume.Visible)
+            {
+                _btnResume.Location = new Point(0, y);
+                y += 46;
+            }
+            if (_lblCredit.Visible)
+            {
+                _lblCredit.Location = new Point(0, y);
+                y += _lblCredit.Height + 4;
+            }
+            if (_btnCredit.Visible)
+            {
+                _btnCredit.Location = new Point(0, y);
+                y += 46;
+            }
+
+            // Small consistent gap (10px) from last visible block to "Pay with" — collapsed when resume/credit hidden
+            _lblPayWith.Location = new Point(0, y);
+            y += _lblPayWith.Height + 6;
+            _btnPoints.Location = new Point(0, y);
+            _btnGfunds.Location = new Point(144, y);
+            y += 48;
+            _lblAmount.Location = new Point(0, y);
+            y += _lblAmount.Height + 6;
+            _amountPanel.Location = new Point(0, y);
+            // Flow panel is AutoSize — measure its preferred height
+            int amountH = _amountPanel.PreferredSize.Height;
+            if (amountH < 34) amountH = 34;
+            if (amountH > 120) amountH = 120;
+            y += amountH + 4;
+            _lblTime.Location = new Point(0, y);
+            y += string.IsNullOrEmpty(_lblTime.Text) ? 8 : 26;
+            _btnStart.Location = new Point(0, y);
+            y += 52;
+            _lblStartError.Location = new Point(0, y);
+            // Reserve space for error label if visible
+            if (!string.IsNullOrEmpty(_lblStartError.Text))
+                y += Math.Max(16, _lblStartError.PreferredSize.Height) + 6;
+            else
+                y += 4;
+            _btnLogout.Location = new Point(0, y);
+            _paymentPanel.ResumeLayout(false);
+            _paymentPanel.PerformLayout();
         }
 
         protected override void OnLoad(EventArgs e)
@@ -1553,6 +1599,7 @@ try
                         ? FmtMinutes((int)(amount / 20.0 * 8))
                         : FmtMinutes(amount * 4);
                     _lblStartError.Text = "";
+                    LayoutPaymentPanel();
                 };
                 _amountPanel.Controls.Add(btn);
             }
@@ -1565,6 +1612,7 @@ try
                     _selectedAmount = (int)_numCustom!.Value;
                     _lblTime.Text = FmtMinutes(_selectedAmount * 4);
                     _lblStartError.Text = "";
+                    LayoutPaymentPanel();
                 };
                 _amountPanel.Controls.Add(customBtn);
 
@@ -1585,9 +1633,12 @@ try
                     _selectedAmount = (int)_numCustom.Value;
                     _lblTime.Text = FmtMinutes(_selectedAmount * 4);
                     _lblStartError.Text = "";
+                    LayoutPaymentPanel();
                 };
                 _amountPanel.Controls.Add(_numCustom);
             }
+            if (_paymentPanel.Visible)
+                LayoutPaymentPanel();
         }
 
         private async Task DoLoginAsync()
@@ -1683,6 +1734,7 @@ try
             _btnResume.Visible = _resumeSeconds > 0;
             _lblCredit.Visible = _creditMinutes > 0;
             _btnCredit.Visible = _creditMinutes > 0;
+            LayoutPaymentPanel();
             Activate();
             Dbg($"ShowPayment login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} user={( _user is null ? "null" : _user.Name )}");
         }
