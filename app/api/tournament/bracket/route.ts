@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import { MAX_NBA_PLAYERS } from "@/lib/constants/nba";
+import { MAX_NBA_PLAYERS, EAST_SLOTS, WEST_SLOTS } from "@/lib/constants/nba";
+import { groupByConference } from "@/lib/tournament/nba-helpers";
 
 export async function GET(req: Request) {
   try {
@@ -11,18 +12,18 @@ export async function GET(req: Request) {
     try {
       const res = await supabase
         .from("tournament_registrations")
-        .select("user_id, team, created_at")
+        .select("user_id, team, created_at, conference, division")
         .eq("tournament_type", "nba")
         .order("created_at", { ascending: true })
         .limit(playerCount);
       if (res.error) throw res.error;
       registrations = res.data as any;
     } catch {
-      const res = await supabase.from("tournament_registrations").select("user_id, team, created_at").order("created_at", { ascending: true }).limit(playerCount);
+      const res = await supabase.from("tournament_registrations").select("user_id, team, created_at, conference, division").order("created_at", { ascending: true }).limit(playerCount);
       registrations = res.data as any;
     }
 
-    const regArray = registrations || [];
+    const regArray = (registrations as any[]) || [];
 
     if (regArray.length < playerCount) {
       return Response.json({
@@ -33,15 +34,26 @@ export async function GET(req: Request) {
       });
     }
 
-    // Split into East (8) and West (8) based on registration order (seeds 1-8 each)
-    const eastPlayers = regArray.slice(0, 8).map((r: any, i: number) => ({
+    // Group by real conference — each team auto-populates to its own conference
+    const { east, west } = groupByConference(regArray as any);
+    if (east.length !== EAST_SLOTS || west.length !== WEST_SLOTS) {
+      return Response.json({
+        error: `Need 8 East + 8 West by real conference, got ${east.length} East / ${west.length} West — each team auto-populates to its own conference`,
+        bracket: null,
+        count: regArray.length,
+        eastCount: east.length,
+        westCount: west.length,
+        tournamentStarted: false,
+      });
+    }
+    const eastPlayers = east.map((r: any, i: number) => ({
       id: r.user_id,
       team: r.team as string,
       seed: i + 1,
       conference: "East" as const,
     }));
 
-    const westPlayers = regArray.slice(8, 16).map((r: any, i: number) => ({
+    const westPlayers = west.map((r: any, i: number) => ({
       id: r.user_id,
       team: r.team as string,
       seed: i + 1,

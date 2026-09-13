@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Swords, Users, Target, X, LogIn, Trophy, Clock, Zap } from "lucide-react";
 import Footer from "@/app/components/Footer";
 import NbaTeamSelector from "@/components/nba-team-selector";
-import { NBA_TEAMS, TEAM_CONFERENCES, getTeamLogo } from "@/lib/constants/nba";
+import { NBA_TEAMS, TEAM_CONFERENCES, getTeamLogo, EAST_SLOTS, WEST_SLOTS } from "@/lib/constants/nba";
+import type { Conference } from "@/lib/constants/nba";
 
 const MAX_PLAYERS = 16;
 
@@ -37,6 +38,7 @@ export default function NbaPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showSelector, setShowSelector] = useState(false);
+  const [clickedConference, setClickedConference] = useState<Conference | null>(null);
   const [showUnregisterModal, setShowUnregisterModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [pendingTeam, setPendingTeam] = useState<string | null>(null);
@@ -63,9 +65,10 @@ export default function NbaPage() {
       const plist: PlayerInfo[] = data.players || [];
       setPlayers(plist);
       setRawCount(data.count ?? plist.length);
-      setEastCount(data.eastCount ?? Math.min(8, Math.ceil(plist.length / 2)));
-      setWestCount(data.westCount ?? plist.length - Math.min(8, Math.ceil(plist.length / 2)));
-      setTournamentStarted(Boolean(data.tournamentStarted) || plist.length === MAX_PLAYERS);
+      setEastCount(data.eastCount ?? plist.filter((p: any) => p.conference === "East").length);
+      setWestCount(data.westCount ?? plist.filter((p: any) => p.conference === "West").length);
+      // tournamentStarted now strictly requires 8 East + 8 West balanced (backend truth)
+      setTournamentStarted(Boolean(data.tournamentStarted));
 
       if (data.count === MAX_PLAYERS || data.tournamentStarted) {
         const [bRes, mRes] = await Promise.all([
@@ -98,7 +101,7 @@ export default function NbaPage() {
   const currentUserRegistered = Boolean(currentUserPlayer);
   const spotsLeft = MAX_PLAYERS - registeredCount;
 
-  function handleSlotClick(player: PlayerInfo | null) {
+  function handleSlotClick(player: PlayerInfo | null, slotIndex?: number) {
     if (submitting) return;
     if (!currentUser) {
       router.push("/login");
@@ -114,7 +117,22 @@ export default function NbaPage() {
       }
       return;
     }
-    // empty slot
+    // empty slot — determine conference from slotIndex (1-8 East, 9-16 West)
+    const slotConference: Conference | null = slotIndex != null ? (slotIndex <= 8 ? "East" : "West") : null;
+    // Per-conference full guard before opening selector
+    if (slotConference === "East" && eastCount >= EAST_SLOTS) {
+      showToast("East is full (8/8) — pick a West team instead", "error");
+      // still open selector filtered to West
+      setClickedConference("West");
+      setShowSelector(true);
+      return;
+    }
+    if (slotConference === "West" && westCount >= WEST_SLOTS) {
+      showToast("West is full (8/8) — pick an East team instead", "error");
+      setClickedConference("East");
+      setShowSelector(true);
+      return;
+    }
     if (currentUserRegistered) {
       showToast("You already registered (1 player = 1 team)", "error");
       return;
@@ -123,11 +141,18 @@ export default function NbaPage() {
       showToast("Tournament is full", "error");
       return;
     }
+    setClickedConference(slotConference);
     setShowSelector(true);
   }
 
-  async function handleTeamSelected(team: string) {
+  async function handleTeamSelected(team: string, conference?: string) {
     if (!currentUser) return;
+    const teamInfo = TEAM_CONFERENCES[team];
+    const realConf = (teamInfo?.conference || conference || null) as Conference | null;
+    // UX hint: if user clicked East slot but picked West team, warn and auto-place to West
+    if (clickedConference && realConf && clickedConference !== realConf) {
+      showToast(`You clicked ${clickedConference} slot but ${team} is ${realConf} — auto-placed to ${realConf}`, "error");
+    }
     setPendingTeam(team);
     // auto-confirm via selector modal, we handle registration here
     setSubmitting(true);
@@ -141,8 +166,11 @@ export default function NbaPage() {
       if (!res.ok) {
         showToast(data.error || "Registration failed", "error");
       } else {
-        showToast(`Locked ${team}! ${data.tournamentStarted ? "Tournament has STARTED — bracket generated!" : `${spotsLeft - 1} spots left`}`, "success");
+        const placedConf = (data.conference || realConf) as Conference | null;
+        const confMsg = placedConf ? ` → ${placedConf} #${placedConf === "East" ? eastCount + 1 : westCount + 1}` : "";
+        showToast(`Locked ${team}${confMsg}! ${data.tournamentStarted ? "Tournament has STARTED — bracket generated!" : `${spotsLeft - 1} spots left`}`, "success");
         setShowSelector(false);
+        setClickedConference(null);
         setPendingTeam(null);
         await fetchData();
       }
@@ -225,14 +253,23 @@ export default function NbaPage() {
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto">
             <div className="min-h-screen flex items-start justify-center p-4 pt-20">
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-5xl shadow-2xl max-h-[85vh] overflow-y-auto">
-                <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 p-4 flex items-center justify-between">
-                  <h3 className="font-bold text-white">Pick Your Team — First Come Gets Fav</h3>
-                  <button onClick={() => setShowSelector(false)} className="text-gray-400 hover:text-white p-1">
+                <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 p-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-white">
+                      {clickedConference ? `Pick Your Team — ${clickedConference} Conference` : "Pick Your Team — First Come Gets Fav"}
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {clickedConference
+                        ? `Showing ${clickedConference} teams only — each team auto-populates to its real conference (8 East + 8 West).`
+                        : "Each team belongs to its real NBA conference — 8 East + 8 West. Filter by conference to see your options."}
+                    </p>
+                  </div>
+                  <button onClick={() => { setShowSelector(false); setClickedConference(null); }} className="text-gray-400 hover:text-white p-1">
                     <X className="w-6 h-6" />
                   </button>
                 </div>
                 <div className="p-6">
-                  <NbaTeamSelector availableTeams={availableTeams} onTeamSelected={handleTeamSelected} mode="register" />
+                  <NbaTeamSelector availableTeams={availableTeams} onTeamSelected={handleTeamSelected} mode="register" initialConference={clickedConference} eastCount={eastCount} westCount={westCount} />
                   {submitting && pendingTeam && <p className="text-center text-sm text-orange-400 mt-4">Locking {pendingTeam}...</p>}
                 </div>
               </div>
@@ -262,7 +299,7 @@ export default function NbaPage() {
               </span>
             </div>
             <p className="mt-6 max-w-2xl text-white/90 leading-relaxed">
-              Pick your NBA team before someone else does — each of the 30 teams can only be chosen once. First 8 registrants form <span className="font-bold text-red-200">East</span>, next 8 form <span className="font-bold text-blue-200">West</span>. When the 16th team locks, the bracket auto-generates: <span className="font-bold">1v8, 4v5, 3v6, 2v7</span> per conference. Tournament begins automatically at 16.
+              Pick your NBA team before someone else does — each of the 30 teams can only be chosen once. Each team <span className="font-bold">auto-populates to its real conference</span> — <span className="font-bold text-red-200">East</span> or <span className="font-bold text-blue-200">West</span> (8 + 8). Click an East slot to see East teams, West slot for West teams. When the 16th team locks (balanced 8/8), the bracket auto-generates: <span className="font-bold">1v8, 4v5, 3v6, 2v7</span> per conference. Tournament begins automatically at 16.
             </p>
             <div className="mt-8 flex flex-wrap gap-8">
               <div>
@@ -295,8 +332,8 @@ export default function NbaPage() {
             <div className={`h-full rounded-full transition-all duration-700 ${tournamentStarted ? "bg-gradient-to-r from-green-500 to-emerald-400 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-gradient-to-r from-orange-600 to-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]"}`} style={{ width: `${progress}%` }} />
           </div>
           <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-            <span>East: {eastCount}/8 · West: {westCount}/8</span>
-            <span className="flex items-center gap-1">{tournamentStarted ? <Zap className="w-3 h-3 text-green-400" /> : <Clock className="w-3 h-3" />} {tournamentStarted ? "First Round generated — check bracket below" : "Tournament auto-starts when 16 teams complete"}</span>
+            <span>East: {eastCount}/{EAST_SLOTS} · West: {westCount}/{WEST_SLOTS} {eastCount === EAST_SLOTS && <span className="text-red-400 font-bold">· East Full</span>} {westCount === WEST_SLOTS && <span className="text-blue-400 font-bold">· West Full</span>}</span>
+            <span className="flex items-center gap-1">{tournamentStarted ? <Zap className="w-3 h-3 text-green-400" /> : <Clock className="w-3 h-3" />} {tournamentStarted ? "First Round generated — check bracket below" : `Tournament auto-starts when 16 teams complete (needs 8 East + 8 West)`}</span>
           </div>
         </div>
 
@@ -331,7 +368,7 @@ export default function NbaPage() {
               <Swords className="w-5 h-5 text-orange-400" /> Tournament Slots
             </h2>
             {!tournamentStarted && !currentUserRegistered && !isFull && currentUser && (
-              <button onClick={() => setShowSelector(true)} className="hidden sm:inline-flex px-4 py-2 rounded-xl font-bold text-white bg-gradient-to-r from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-sm">
+              <button onClick={() => { setClickedConference(null); setShowSelector(true); }} className="hidden sm:inline-flex px-4 py-2 rounded-xl font-bold text-white bg-gradient-to-r from-orange-600 to-red-500 hover:from-orange-500 hover:to-red-400 text-sm">
                 Pick Your Team
               </button>
             )}
@@ -339,15 +376,24 @@ export default function NbaPage() {
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {orderedPlayers.map((player, index) => {
+              const slotIndex = index + 1;
+              const slotConference: Conference = slotIndex <= 8 ? "East" : "West";
               const isOwnSlot = player?.id === currentUser?.id;
               const isEmpty = !player;
               const slotTeamInfo = player?.team ? TEAM_CONFERENCES[player.team] : null;
+              const isConferenceFull = !isEmpty
+                ? false
+                : slotConference === "East"
+                  ? eastCount >= EAST_SLOTS
+                  : westCount >= WEST_SLOTS;
+              // Empty slot is only actionable if its conference not full and overall not full
+              const emptyClickable = isEmpty && !tournamentStarted && !isFull && !isConferenceFull;
 
               return (
                 <div
                   key={index}
-                  onClick={() => handleSlotClick(player)}
-                  className={`rounded-xl border p-4 flex flex-col gap-3 transition-all ${isEmpty && !tournamentStarted && !isFull ? "border-dashed border-green-500/40 bg-zinc-950/40 cursor-pointer hover:border-green-500 hover:bg-zinc-900/60" : isOwnSlot ? "border-orange-500/50 bg-zinc-900 cursor-pointer hover:border-orange-400" : isEmpty ? "border-zinc-800 bg-zinc-950/30" : "border-zinc-800 bg-zinc-950/60"}`}
+                  onClick={() => handleSlotClick(player, slotIndex)}
+                  className={`rounded-xl border p-4 flex flex-col gap-3 transition-all ${emptyClickable ? (slotConference === "East" ? "border-dashed border-red-500/40 bg-red-950/10 cursor-pointer hover:border-red-500 hover:bg-red-950/20" : "border-dashed border-blue-500/40 bg-blue-950/10 cursor-pointer hover:border-blue-500 hover:bg-blue-950/20") : isOwnSlot ? "border-orange-500/50 bg-zinc-900 cursor-pointer hover:border-orange-400" : isEmpty ? "border-zinc-800 bg-zinc-950/30" : "border-zinc-800 bg-zinc-950/60"} ${isConferenceFull && isEmpty ? "opacity-60" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     {player?.team ? (
@@ -360,24 +406,30 @@ export default function NbaPage() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="text-[10px] text-gray-500 font-medium tracking-wider">SLOT #{index + 1} {index < 8 ? "· EAST" : "· WEST"}</div>
-                      <div className={`font-bold truncate text-sm ${player ? "text-white" : "text-gray-500"}`}>{player?.name || (isEmpty && !tournamentStarted ? "Available" : tournamentStarted ? "Locked" : "Full")}</div>
+                      <div className="text-[10px] text-gray-500 font-medium tracking-wider">
+                        SLOT #{slotIndex} · {player?.conference || slotConference}{" "}
+                        {isEmpty && isConferenceFull && <span className="text-red-400">· FULL</span>}
+                      </div>
+                      <div className={`font-bold truncate text-sm ${player ? "text-white" : isConferenceFull ? "text-red-400/60" : "text-gray-500"}`}>{player?.name || (isEmpty && isConferenceFull ? `${slotConference} Full` : isEmpty && !tournamentStarted ? "Available" : tournamentStarted ? "Locked" : "Full")}</div>
                     </div>
-                    <div className={`text-[10px] font-bold px-2 py-1 rounded-full border ${isOwnSlot ? "bg-orange-500/15 text-orange-300 border-orange-500/20" : player ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-zinc-800 text-gray-500 border-zinc-700"}`}>
-                      {isOwnSlot ? "You" : player ? "Locked" : isEmpty && tournamentStarted ? "Closed" : "Open"}
+                    <div className={`text-[10px] font-bold px-2 py-1 rounded-full border ${isOwnSlot ? "bg-orange-500/15 text-orange-300 border-orange-500/20" : player ? "bg-green-500/10 text-green-400 border-green-500/20" : isConferenceFull ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-zinc-800 text-gray-500 border-zinc-700"}`}>
+                      {isOwnSlot ? "You" : player ? "Locked" : isConferenceFull ? "Full" : isEmpty && tournamentStarted ? "Closed" : "Open"}
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="text-xs truncate">
                       {player?.team ? (
                         <span className="font-semibold text-white">{player.team}</span>
+                      ) : isConferenceFull ? (
+                        <span className="text-red-400/50 text-[11px]">{slotConference} 8/8 Full</span>
                       ) : isEmpty && !tournamentStarted && !isFull ? (
-                        <span className="text-green-400/70">Click to pick team</span>
+                        <span className={slotConference === "East" ? "text-red-400/70" : "text-blue-400/70"}>Click to pick {slotConference} team</span>
                       ) : (
                         <span className="text-gray-600">—</span>
                       )}
                     </div>
                     {slotTeamInfo && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${slotTeamInfo.conference === "East" ? "border-red-500/20 text-red-400 bg-red-500/10" : "border-blue-500/20 text-blue-400 bg-blue-500/10"}`}>{slotTeamInfo.conference}</span>}
+                    {!player && !isConferenceFull && emptyClickable && <span className={`text-[10px] hidden sm:inline ${slotConference === "East" ? "text-red-400/60" : "text-blue-400/60"}`}>{slotConference}</span>}
                   </div>
                   {player && <div className="text-[11px] text-gray-500">{player.points ?? 0} Points · {slotTeamInfo?.division || ""}</div>}
                   {isEmpty && !currentUser && !tournamentStarted && <LogIn className="w-3 h-3 text-gray-600 ml-auto" />}
@@ -408,7 +460,7 @@ export default function NbaPage() {
             <h2 className="text-xl md:text-2xl font-black text-white mb-6 flex items-center gap-2">
               <Trophy className="w-5 h-5 text-yellow-400" /> Playoff Bracket — First Round
             </h2>
-            <p className="text-sm text-gray-400 mb-6">Auto-generated when 16th team locked. Seeds by registration order within each conference (first East = 1-seed). Winners advance via <code className="text-orange-300">/api/tournament/matches</code>.</p>
+            <p className="text-sm text-gray-400 mb-6">Auto-generated when 16th team locks balanced 8 East + 8 West by real team conference. Seeds by registration order within each conference (earliest in that conference = 1-seed). Each team auto-populates to its own conference. Winners advance via <code className="text-orange-300">/api/tournament/matches</code>.</p>
 
             <div className="grid lg:grid-cols-2 gap-6">
               {/* East */}
@@ -456,12 +508,12 @@ export default function NbaPage() {
               <Target className="w-5 h-5 text-purple-400" /> Bracket Preview
             </h2>
             <p className="text-gray-300 text-sm leading-relaxed">
-              Bracket unlocks automatically when the 16th player locks their team. Until then, keep picking — remember, <span className="text-orange-300 font-semibold">first come gets fav team</span>.
+              Bracket unlocks automatically when 16 teams lock balanced <span className="font-bold text-red-300">8 East</span> + <span className="font-bold text-blue-300">8 West</span> by real team conference. Each team auto-populates to its own conference — click an <span className="text-red-400">East</span> slot for East teams, <span className="text-blue-400">West</span> slot for West teams. Seeds by registration order within conference · 1v8, 4v5, 3v6, 2v7.
             </p>
             <div className="mt-4 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/60 p-4 text-center">
               <div className="text-3xl mb-2">🏀</div>
               <div className="text-sm text-gray-300 font-semibold">{spotsLeft} more {spotsLeft === 1 ? "team" : "teams"} needed to start</div>
-              <div className="text-xs text-gray-500 mt-1">East 1st 8 → West next 8 · Seeds by registration order · 1v8, 4v5, 3v6, 2v7</div>
+              <div className="text-xs text-gray-500 mt-1">Needs 8 East + 8 West (real conference) · East {eastCount}/8 · West {westCount}/8 · Seeds by order within conference · 1v8, 4v5, 3v6, 2v7</div>
             </div>
           </div>
         )}

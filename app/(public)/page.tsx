@@ -165,7 +165,7 @@ export default function LandingPage() {
                 NBA — <span className="text-orange-400">16 Teams</span>
               </h3>
               <p className="text-gray-200 leading-relaxed mb-4 text-sm">
-                1 player = 1 team, first-come gets fav team. First 8 → East, next 8 → West. Auto-starts at 16 with bracket 1v8, 4v5, 3v6, 2v7.
+                1 player = 1 team, first-come gets fav team. Each team auto-populates to its real conference — 8 East + 8 West. Auto-starts at 16 with bracket 1v8, 4v5, 3v6, 2v7.
               </p>
               <div className="flex flex-wrap gap-2 mb-6">
                 <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs text-gray-200">1 Player = 1 Team</span>

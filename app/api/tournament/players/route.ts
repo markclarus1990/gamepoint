@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import { MAX_NBA_PLAYERS } from "@/lib/constants/nba";
+import { MAX_NBA_PLAYERS, EAST_SLOTS, WEST_SLOTS } from "@/lib/constants/nba";
+import { buildConferencePlayers } from "@/lib/tournament/nba-helpers";
 
 export async function GET(req: Request) {
   try {
@@ -10,18 +11,18 @@ export async function GET(req: Request) {
     try {
       const res = await supabase
         .from("tournament_registrations")
-        .select("user_id, team, created_at")
+        .select("user_id, team, created_at, conference, division")
         .eq("tournament_type", "nba")
         .order("created_at", { ascending: true })
         .limit(limit);
       if (res.error) throw res.error;
       registrations = res.data as any;
     } catch {
-      const res = await supabase.from("tournament_registrations").select("user_id, team, created_at").order("created_at", { ascending: true }).limit(limit);
+      const res = await supabase.from("tournament_registrations").select("user_id, team, created_at, conference, division").order("created_at", { ascending: true }).limit(limit);
       registrations = res.data as any;
     }
 
-    const regArray = registrations || [];
+    const regArray = (registrations as any[]) || [];
 
     if (regArray.length === 0) {
       return Response.json({ players: [], count: 0, eastCount: 0, westCount: 0, tournamentStarted: false });
@@ -32,27 +33,17 @@ export async function GET(req: Request) {
 
     const playerMap = new Map((players || []).map((p: any) => [p.id, { ...p, registeredAt: null }]));
 
-    const orderedPlayers = regArray.map((r: any, i: number) => ({
-      ...(playerMap.get(r.user_id) || { id: r.user_id, name: "Unknown", avatar_url: null, points: 0 }),
-      slotIndex: i + 1,
-      team: r.team,
-    }));
+    // Auto-populate to own conference by real team mapping (not registration order)
+    const { conferencePlayers, eastCount, westCount } = buildConferencePlayers(regArray as any, playerMap as Map<string, unknown>);
 
-    // East = first 8 by registration order, West = next 8 (balanced)
-    const eastCount = Math.min(8, Math.ceil(orderedPlayers.length / 2));
-    const westCount = orderedPlayers.length - eastCount;
-
-    const conferencePlayers = orderedPlayers.map((p: any, i: number) => {
-      const conference = i < eastCount ? "East" : "West";
-      return { ...p, conference, slotIndex: i + 1 };
-    });
+    const tournamentStarted = regArray.length === MAX_NBA_PLAYERS && eastCount === EAST_SLOTS && westCount === WEST_SLOTS;
 
     return Response.json({
       players: conferencePlayers,
-      count: orderedPlayers.length,
+      count: regArray.length,
       eastCount,
       westCount,
-      tournamentStarted: orderedPlayers.length === MAX_NBA_PLAYERS,
+      tournamentStarted,
     });
   } catch (err: unknown) {
     const message =

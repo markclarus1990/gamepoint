@@ -1,16 +1,17 @@
 import { supabase } from "@/lib/supabase";
-import { NBA_TEAMS, TEAM_CONFERENCES, MAX_NBA_PLAYERS } from "@/lib/constants/nba";
+import { NBA_TEAMS, TEAM_CONFERENCES, MAX_NBA_PLAYERS, EAST_SLOTS, WEST_SLOTS } from "@/lib/constants/nba";
+import { groupByConference, buildConferencePlayers } from "@/lib/tournament/nba-helpers";
 
 async function generateFirstRoundIfNeeded() {
-  // Check if we have 16 nba registrations and no matches yet -> auto-generate First Round
+  // Check if we have 16 nba registrations (8 East + 8 West by real conference) and no matches yet -> auto-generate First Round
   try {
     const { data: regs } = await supabase
       .from("tournament_registrations")
-      .select("user_id, team, created_at")
+      .select("user_id, team, created_at, conference")
       .eq("tournament_type", "nba")
       .order("created_at", { ascending: true });
 
-    const regArray = regs || [];
+    const regArray = (regs as any[]) || [];
     if (regArray.length !== MAX_NBA_PLAYERS) return;
 
     const { data: existingMatches } = await supabase
@@ -21,12 +22,16 @@ async function generateFirstRoundIfNeeded() {
 
     if (existingMatches && existingMatches.length > 0) return;
 
-    const eastPlayers = regArray.slice(0, 8).map((r: any, i: number) => ({
+    const { east, west } = groupByConference(regArray as any);
+    // Strict 8/8 — bracket only generates when each real conference is balanced
+    if (east.length !== EAST_SLOTS || west.length !== WEST_SLOTS) return;
+
+    const eastPlayers = east.map((r: any, i: number) => ({
       id: r.user_id,
       team: r.team as string,
       seed: i + 1,
     }));
-    const westPlayers = regArray.slice(8, 16).map((r: any, i: number) => ({
+    const westPlayers = west.map((r: any, i: number) => ({
       id: r.user_id,
       team: r.team as string,
       seed: i + 1,
@@ -164,6 +169,34 @@ export async function POST(req: Request) {
     // Also guard: if tournament already started (matches exist), block new registrations anyway (full check already)
     // Insert with conference/division for badge
     const teamInfo = TEAM_CONFERENCES[team];
+    // Per-conference cap (8 East + 8 West by real team conference) — auto-populate to own conference
+    if (teamInfo) {
+      try {
+        const { data: confRegs } = await supabase
+          .from("tournament_registrations")
+          .select("team, conference, created_at")
+          .eq("tournament_type", "nba");
+        const grouped = groupByConference(((confRegs as any[]) || []) as any);
+        const confCount = teamInfo.conference === "East" ? grouped.east.length : grouped.west.length;
+        const slotCap = teamInfo.conference === "East" ? EAST_SLOTS : WEST_SLOTS;
+        if (confCount >= slotCap) {
+          const otherConf = teamInfo.conference === "East" ? "West" : "East";
+          const availableOther = NBA_TEAMS.filter((t) => {
+            const c = TEAM_CONFERENCES[t]?.conference;
+            if (c !== otherConf) return false;
+            return !(confRegs as any[])?.some((r: any) => r.team === t);
+          });
+          return Response.json(
+            {
+              error: `${teamInfo.conference} is full (${slotCap}/${slotCap}) — pick a ${otherConf} team. Available ${otherConf}: ${availableOther.slice(0, 6).join(", ")}${availableOther.length > 6 ? "…" : ""}`,
+              conferenceFull: teamInfo.conference,
+              availableOther,
+            },
+            { status: 400 }
+          );
+        }
+      } catch {}
+    }
     const payload: Record<string, unknown> = { user_id, team, tournament_type: "nba" };
     if (teamInfo) {
       payload.conference = teamInfo.conference;
@@ -187,14 +220,21 @@ export async function POST(req: Request) {
 
     // Return updated count for UI to switch to bracket view
     let newCount = count != null ? count + 1 : null;
+    let tournamentStarted = false;
     try {
       const res2 = await supabase.from("tournament_registrations").select("*", { count: "exact", head: true }).eq("tournament_type", "nba");
       newCount = res2.count;
-    } catch {}
+      if (newCount === MAX_NBA_PLAYERS) {
+        // Strict: only started if balanced 8/8 by real conference
+        const { data: allRegs } = await supabase.from("tournament_registrations").select("team, conference, created_at").eq("tournament_type", "nba");
+        const g = groupByConference(((allRegs as any[]) || []) as any);
+        tournamentStarted = g.east.length === EAST_SLOTS && g.west.length === WEST_SLOTS;
+      }
+    } catch {
+      tournamentStarted = newCount === MAX_NBA_PLAYERS;
+    }
 
-    const tournamentStarted = newCount === MAX_NBA_PLAYERS;
-
-    return Response.json({ success: true, team, count: newCount, tournamentStarted });
+    return Response.json({ success: true, team, count: newCount, tournamentStarted, conference: teamInfo?.conference });
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : typeof err === "object" && err !== null && "message" in err ? String((err as { message: string }).message) : "Internal server error";
@@ -212,17 +252,17 @@ export async function GET(req: Request) {
       try {
         const res = await supabase
           .from("tournament_registrations")
-          .select("user_id, team, created_at")
+          .select("user_id, team, created_at, conference, division")
           .eq("tournament_type", "nba")
           .order("created_at", { ascending: true });
         registrations = res.data as any;
         if (res.error) throw res.error;
       } catch {
-        const res = await supabase.from("tournament_registrations").select("user_id, team, created_at").order("created_at", { ascending: true });
+        const res = await supabase.from("tournament_registrations").select("user_id, team, created_at, conference, division").order("created_at", { ascending: true });
         registrations = res.data as any;
       }
 
-      const regArray = registrations || [];
+      const regArray = (registrations as any[]) || [];
       if (regArray.length === 0) {
         return Response.json({ players: [], conference: "none", count: 0, eastCount: 0, westCount: 0, tournamentStarted: false });
       }
@@ -231,26 +271,20 @@ export async function GET(req: Request) {
       const { data: players } = await supabase.from("users").select("id, name, avatar_url, points").in("id", userIds);
       const playerMap = new Map((players || []).map((p: any) => [p.id, { ...p, registeredAt: null }]));
 
-      const orderedPlayers = regArray.map((r: any, i: number) => ({
-        ...(playerMap.get(r.user_id) || { id: r.user_id, name: "Unknown" }),
-        slotIndex: i + 1,
-        team: r.team,
-      }));
+      // Auto-populate to own conference by real team mapping
+      const { conferencePlayers, eastCount, westCount } = buildConferencePlayers(
+        regArray as any,
+        playerMap as Map<string, unknown>
+      );
 
-      const eastCount = Math.min(8, Math.ceil(orderedPlayers.length / 2));
-      const westCount = orderedPlayers.length - eastCount;
-
-      const conferencePlayers = orderedPlayers.map((p: any, i: number) => {
-        const conference = i < eastCount ? "East" : "West";
-        return { ...p, conference, slotIndex: i + 1 };
-      });
+      const tournamentStarted = regArray.length === MAX_NBA_PLAYERS && eastCount === EAST_SLOTS && westCount === WEST_SLOTS;
 
       return Response.json({
         players: conferencePlayers,
-        count: orderedPlayers.length,
+        count: regArray.length,
         eastCount,
         westCount,
-        tournamentStarted: orderedPlayers.length === MAX_NBA_PLAYERS,
+        tournamentStarted,
       });
     }
 
@@ -259,17 +293,17 @@ export async function GET(req: Request) {
       try {
         const res = await supabase
           .from("tournament_registrations")
-          .select("user_id, team, created_at")
+          .select("user_id, team, created_at, conference, division")
           .eq("tournament_type", "nba")
           .order("created_at", { ascending: true });
         registrations = res.data as any;
         if (res.error) throw res.error;
       } catch {
-        const res = await supabase.from("tournament_registrations").select("user_id, team, created_at").order("created_at", { ascending: true });
+        const res = await supabase.from("tournament_registrations").select("user_id, team, created_at, conference, division").order("created_at", { ascending: true });
         registrations = res.data as any;
       }
 
-      const regArray = registrations || [];
+      const regArray = (registrations as any[]) || [];
 
       if (regArray.length < MAX_NBA_PLAYERS) {
         return Response.json({
@@ -280,14 +314,27 @@ export async function GET(req: Request) {
         });
       }
 
-      const eastPlayers = regArray.slice(0, 8).map((r: any, i: number) => ({
+      // Group by real conference for bracket seeds
+      const grouped = groupByConference(regArray as any);
+      if (grouped.east.length !== EAST_SLOTS || grouped.west.length !== WEST_SLOTS) {
+        return Response.json({
+          error: `Need 8 East + 8 West by real conference, got ${grouped.east.length} East / ${grouped.west.length} West — each team auto-populates to its own conference`,
+          bracket: null,
+          count: regArray.length,
+          eastCount: grouped.east.length,
+          westCount: grouped.west.length,
+          tournamentStarted: false,
+        });
+      }
+
+      const eastPlayers = grouped.east.map((r: any, i: number) => ({
         id: r.user_id,
         team: r.team as string,
         seed: i + 1,
         conference: "East" as const,
       }));
 
-      const westPlayers = regArray.slice(8, 16).map((r: any, i: number) => ({
+      const westPlayers = grouped.west.map((r: any, i: number) => ({
         id: r.user_id,
         team: r.team as string,
         seed: i + 1,

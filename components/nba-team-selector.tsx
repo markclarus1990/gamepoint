@@ -14,18 +14,32 @@ export default function NbaTeamSelector({
   onTeamSelected,
   availableTeams = [...NBA_TEAMS],
   mode = "register",
+  initialConference = null,
+  eastCount,
+  westCount,
 }: {
   onTeamSelected: (team: string, conference: "East" | "West", division: string) => void;
   availableTeams?: string[];
   mode?: "register" | "bracket";
+  initialConference?: "East" | "West" | null;
+  eastCount?: number;
+  westCount?: number;
 }) {
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [teamsLeft, setTeamsLeft] = useState(availableTeams?.length || 0);
+  const [activeFilter, setActiveFilter] = useState<"All" | "East" | "West">(
+    initialConference ? initialConference : "All"
+  );
 
   useEffect(() => {
     setTeamsLeft(availableTeams.length);
   }, [availableTeams.length]);
+
+  useEffect(() => {
+    if (initialConference) setActiveFilter(initialConference);
+    else setActiveFilter("All");
+  }, [initialConference]);
 
   const handleTeamChange = useCallback(
     (team: string) => {
@@ -57,15 +71,74 @@ export default function NbaTeamSelector({
           <h3 className="text-xl font-bold text-white flex items-center gap-2">
             <Users className="w-5 h-5 text-orange-400" /> Select Your NBA Team
           </h3>
-          <p className="text-gray-300 mb-6 text-sm">
-            Choose your team for the NBA Playoff Tournament. Each team can only be selected once — <span className="text-orange-400 font-semibold">first come gets fav team</span> (1 player = 1 team).
+          <p className="text-gray-300 mb-3 text-sm">
+            Choose your team for the NBA Playoff Tournament. Each team can only be selected once — <span className="text-orange-400 font-semibold">first come gets fav team</span> (1 player = 1 team). <span className="text-white font-semibold">Each team auto-populates to its real conference (8 East + 8 West).</span>
           </p>
+          {initialConference && (
+            <div className={`mb-4 rounded-xl border px-4 py-3 text-sm flex items-center justify-between ${initialConference === "East" ? "border-red-500/30 bg-red-950/20 text-red-200" : "border-blue-500/30 bg-blue-950/20 text-blue-200"}`}>
+              <span>
+                You clicked an <span className="font-black">{initialConference}</span> slot — showing <span className="font-bold">{initialConference} teams only</span>. You will be auto-placed to {initialConference}.
+              </span>
+              <button onClick={() => setActiveFilter("All")} className="ml-3 text-xs underline opacity-80 hover:opacity-100 shrink-0">
+                Show all
+              </button>
+            </div>
+          )}
+
+          {/* Conference filter tabs */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {(
+              [
+                { key: "All" as const, label: "All", count: availableTeams.length },
+                { key: "East" as const, label: "East", count: availableTeams.filter((t) => TEAM_CONFERENCES[t]?.conference === "East").length },
+                { key: "West" as const, label: "West", count: availableTeams.filter((t) => TEAM_CONFERENCES[t]?.conference === "West").length },
+              ] as const
+            ).map((tab) => {
+              const isActive = activeFilter === tab.key;
+              const isEast = tab.key === "East";
+              const isWest = tab.key === "West";
+              const full = tab.key !== "All" && tab.count === 0;
+              // Also consider per-conference slot cap from eastCount/westCount if provided
+              const slotFull = tab.key === "East" && eastCount !== undefined ? eastCount >= 8 : tab.key === "West" && westCount !== undefined ? westCount >= 8 : false;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveFilter(tab.key)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                    isActive
+                      ? isEast
+                        ? "bg-red-500 text-white border-red-400 shadow-lg shadow-red-500/20"
+                        : isWest
+                          ? "bg-blue-500 text-white border-blue-400 shadow-lg shadow-blue-500/20"
+                          : "bg-zinc-100 text-zinc-900 border-zinc-200"
+                      : full || slotFull
+                        ? "bg-zinc-900 text-gray-500 border-red-500/20 opacity-60"
+                        : "bg-zinc-900 text-gray-300 border-zinc-700 hover:border-zinc-600"
+                  }`}
+                >
+                  {tab.label} <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${isActive ? "bg-white/20 text-white" : "bg-zinc-800 text-gray-400"}`}>{tab.count} left</span>
+                  {slotFull && <span className="text-[10px]">(Full 8/8)</span>}
+                </button>
+              );
+            })}
+          </div>
+          {(eastCount !== undefined && westCount !== undefined) && (
+            <div className="mb-4 flex gap-2 text-xs">
+              <span className={`px-3 py-1.5 rounded-full border font-semibold ${eastCount >= 8 ? "border-red-500/40 bg-red-500/20 text-red-300" : "border-red-500/20 bg-red-500/10 text-red-400"}`}>East {eastCount}/8 {eastCount >= 8 ? "· Full" : ""}</span>
+              <span className={`px-3 py-1.5 rounded-full border font-semibold ${westCount >= 8 ? "border-blue-500/40 bg-blue-500/20 text-blue-300" : "border-blue-500/20 bg-blue-500/10 text-blue-400"}`}>West {westCount}/8 {westCount >= 8 ? "· Full" : ""}</span>
+              <span className="ml-auto text-gray-500 hidden sm:inline text-[11px] self-center">Teams auto-populate to their own conference</span>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {NBA_TEAMS.map((team) => {
+            {NBA_TEAMS.filter((team) => {
+              if (activeFilter === "All") return true;
+              const info = TEAM_CONFERENCES[team];
+              return info?.conference === activeFilter;
+            }).map((team) => {
               const teamInfo = TEAM_CONFERENCES[team];
               const taken = isTaken(team);
-
+              // Hide if filter is strict and taken? Keep showing taken but disabled
               return (
                 <button
                   key={team}
@@ -86,12 +159,17 @@ export default function NbaTeamSelector({
                     onError={(e) => ((e.currentTarget.src = "/window.svg"))}
                   />
                   <span className={`text-xs text-center font-semibold leading-tight ${taken ? "text-red-300/60" : "text-gray-200"}`}>{team}</span>
-                  {teamInfo && <span className={`text-[10px] px-2 py-0.5 rounded-full border ${teamInfo.conference === "East" ? "border-red-500/20 text-red-400 bg-red-500/10" : "border-blue-500/20 text-blue-400 bg-blue-500/10"}`}>{teamInfo.conference}</span>}
+                  {teamInfo && <span className={`text-[10px] px-2 py-0.5 rounded-full border ${teamInfo.conference === "East" ? "border-red-500/20 text-red-400 bg-red-500/10" : "border-blue-500/20 text-blue-400 bg-blue-500/10"}`}>{teamInfo.conference} · {teamInfo.division}</span>}
                   {taken && <span className="absolute top-1 right-1 text-[10px] font-bold text-red-400 bg-red-500/20 px-1.5 py-0.5 rounded">TAKEN</span>}
                 </button>
               );
             })}
           </div>
+          {NBA_TEAMS.filter((t) => activeFilter === "All" ? true : TEAM_CONFERENCES[t]?.conference === activeFilter).every((t) => isTaken(t)) && (
+            <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-950/20 p-4 text-center text-sm text-amber-200">
+              All <span className="font-bold">{activeFilter}</span> teams are taken or {activeFilter !== "All" && (activeFilter === "East" ? eastCount : westCount) === 8 ? " that conference is full (8/8)" : " no teams left in this filter"} — try another conference.
+            </div>
+          )}
 
           <div className="mt-4 pt-4 border-t border-zinc-800/50 flex items-center justify-between">
             <p className="text-sm text-gray-400">
