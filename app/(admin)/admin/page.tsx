@@ -466,6 +466,8 @@ function formatTimelineItem(item: TimelineItem): FormattedEvent {
 const GRADIENT =
   "bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500";
 
+const QUICK_AMOUNTS = [10, 15, 20, 25, 30] as const;
+
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -1952,6 +1954,22 @@ export default function Admin() {
               onChange={setDeductAmount}
               className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-red-500/60"
             />
+            <div className="grid grid-cols-5 gap-2">
+              {QUICK_AMOUNTS.map((v) => (
+                <button
+                  key={`d-${v}`}
+                  type="button"
+                  onClick={() => setDeductAmount(String(v))}
+                  className={`py-2 rounded-xl text-xs font-medium transition-colors ${
+                    (Number(deductAmount) || 0) === v
+                      ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white"
+                      : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
 
             <button
               onClick={deductPoints}
@@ -2013,6 +2031,20 @@ export default function Admin() {
                 onChange={setLoadGfunds}
                 className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
+              <div className="grid grid-cols-5 gap-2 mt-2">
+                {QUICK_AMOUNTS.map((v) => (
+                  <button
+                    key={`g-${v}`}
+                    type="button"
+                    onClick={() => setLoadGfunds(String(v))}
+                    className={`py-2 rounded-xl text-xs font-medium transition-colors ${
+                      (Number(loadGfunds) || 0) === v ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
               <div className="text-xs text-zinc-500 mt-1">1₱ = 4 mins of gfunds time</div>
             </div>
 
@@ -2023,6 +2055,20 @@ export default function Admin() {
                 onChange={setLoadPoints}
                 className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-emerald-500/60"
               />
+              <div className="grid grid-cols-5 gap-2 mt-2">
+                {QUICK_AMOUNTS.map((v) => (
+                  <button
+                    key={`p-${v}`}
+                    type="button"
+                    onClick={() => setLoadPoints(String(v))}
+                    className={`py-2 rounded-xl text-xs font-medium transition-colors ${
+                      (Number(loadPoints) || 0) === v ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
               <div className="text-xs text-zinc-500 mt-1">20 pts = 8 mins of game time</div>
             </div>
 
