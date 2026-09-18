@@ -584,7 +584,7 @@ internal static class Program
                     _pendingUpdate = null;
                     if (manual)
                     {
-                        MessageBox.Show(dlgOwner, $"You are on the latest version.\nCurrent: v{Updater.CurrentVersion}\nLatest: v{info.Version}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(dlgOwner, $"You're on the latest version.\nCurrent: v{Updater.CurrentVersion}\nLatest: v{info.Version}\n\nDeveloped by Mark Clarus", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     _lockForm?.SetUpdateStatus($"v{Updater.CurrentVersion} • up to date", false);
                     _countdownForm?.SetUpdateStatus($"v{Updater.CurrentVersion}", false);
