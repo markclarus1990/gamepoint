@@ -1,0 +1,86 @@
+name: Build GamepointAgent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      - ".github/workflows/build-agent.yml"
+  pull_request:
+    paths:
+      - "agent/**"
+  workflow_dispatch:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build agent (single-file self-contained)
+        shell: pwsh
+        run: |
+          $version = "1.0.${{ github.run_number }}"
+          # If this is a tag push like agent-v1.2.3 use the tag as version
+          if ("${{ github.ref }}" -like "refs/tags/agent-v*") {
+            $version = "${{ github.ref_name }}".Replace("agent-v","")
+          }
+          Write-Host "Building version $version"
+          dotnet publish ./agent/GamepointAgent/GamepointAgent.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:Version=$version `
+            -p:AssemblyVersion=$version `
+            -p:FileVersion=$version `
+            -o ./agent/dist
+          if (-not (Test-Path "./agent/dist/config.json")) {
+            Copy-Item "./agent/config.sample.json" "./agent/dist/config.json"
+          }
+          # Write version file next to the exe so the server/agent can read it
+          Set-Content -Path "./agent/dist/VERSION" -Value $version -NoNewline
+          Get-ChildItem ./agent/dist | Format-Table Name, Length
+
+      - name: Upload artifact (PR / manual)
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')
+        uses: actions/upload-artifact@v4
+        with:
+          name: GamepointAgent-${{ github.run_number }}
+          path: |
+            agent/dist/GamepointAgent.exe
+            agent/dist/VERSION
+            agent/dist/config.json
+
+      - name: Create GitHub Release (main branch)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: agent-v1.0.${{ github.run_number }}
+          name: "Agent v1.0.${{ github.run_number }}"
+          generate_release_notes: true
+          files: |
+            agent/dist/GamepointAgent.exe
+            agent/dist/VERSION
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach to existing release (tag push)
+        if: startsWith(github.ref, 'refs/tags/agent-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            agent/dist/GamepointAgent.exe
+            agent/dist/VERSION
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

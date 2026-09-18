@@ -22,6 +22,9 @@ internal static class Program
         public int PollSeconds { get; set; } = 10;
         public int StationPort { get; set; } = 3987;
         public int[] AnnounceMinutesLeft { get; set; } = new[] { 10, 3, 1 };
+        public string? GithubRepo { get; set; }
+        public string? GithubToken { get; set; }
+        public int UpdateCheckMinutes { get; set; } = 60;
     }
 
     private sealed class Status
@@ -264,6 +267,10 @@ internal static class Program
             return;
         }
 
+        // Normalize optional fields for old configs
+        if (cfg.UpdateCheckMinutes <= 0) cfg.UpdateCheckMinutes = 60;
+        cfg.GithubRepo ??= "markclarus1990/gamepoint";
+
         var controller = new ControllerForm(cfg);
         Application.Run(controller);
     }
@@ -345,6 +352,11 @@ internal static class Program
         private readonly System.Windows.Forms.Timer _pollTimer;
         private readonly System.Windows.Forms.Timer _clockTimer;
         private readonly System.Windows.Forms.Timer _keepOnTopTimer;
+        private readonly System.Windows.Forms.Timer _updateTimer;
+        private readonly Updater _updater;
+        private Updater.VersionInfo? _pendingUpdate;
+        private bool _updateInProgress;
+        private DateTime _lastUpdateCheck = DateTime.MinValue;
         private LockForm? _lockForm;
         private CountdownForm? _countdownForm;
         private Status? _current;
@@ -402,6 +414,12 @@ internal static class Program
             _keepOnTopTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             _keepOnTopTimer.Tick += (_, _) => _lockForm?.ForceTop();
 
+            var repo = string.IsNullOrWhiteSpace(_cfg.GithubRepo) ? "markclarus1990/gamepoint" : _cfg.GithubRepo!;
+            _updater = new Updater(_http, _cfg.ServerUrl, repo, _cfg.GithubToken);
+            var checkMinutes = Math.Max(5, _cfg.UpdateCheckMinutes);
+            _updateTimer = new System.Windows.Forms.Timer { Interval = checkMinutes * 60 * 1000 };
+            _updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync(false);
+
             Load += async (_, _) =>
             {
                 await DownloadSoundsAsync();
@@ -409,6 +427,16 @@ internal static class Program
                 _pollTimer.Start();
                 _clockTimer.Start();
                 StartLocalApi();
+                _updateTimer.Start();
+                // First check 15s after startup (don't block the initial lock screen)
+                var firstCheck = new System.Windows.Forms.Timer { Interval = 15000 };
+                firstCheck.Tick += async (_, _) =>
+                {
+                    firstCheck.Stop();
+                    firstCheck.Dispose();
+                    await CheckForUpdatesAsync(false);
+                };
+                firstCheck.Start();
             };
         }
 
@@ -430,6 +458,20 @@ internal static class Program
                         {
                             await CaptureAndUploadScreenshotAsync();
                             await AckCommandAsync();
+                        }
+                        else if (st.PendingCommand == "update")
+                        {
+                            await AckCommandAsync();
+                            Dbg("Remote update command received");
+                            _ = Task.Run(async () =>
+                            {
+                                await Task.Delay(500);
+                                await CheckForUpdatesAsync(false);
+                                if (_pendingUpdate != null)
+                                {
+                                    if (IsHandleCreated) BeginInvoke(async () => await ApplyPendingUpdateAsync());
+                                }
+                            });
                         }
                         else
                         {
@@ -479,6 +521,117 @@ internal static class Program
             finally
             {
                 _pollTimer.Start();
+            }
+        }
+
+        public async Task CheckForUpdatesAsync(bool manual)
+        {
+            if (_updateInProgress) return;
+            // throttle: at most once per 2 min unless manual
+            if (!manual && DateTime.Now - _lastUpdateCheck < TimeSpan.FromMinutes(2)) return;
+            _lastUpdateCheck = DateTime.Now;
+            try
+            {
+                Dbg($"Update check start (manual={manual}) current={Updater.CurrentVersion}");
+                _lockForm?.SetUpdateStatus("Checking for updates...", false);
+                _countdownForm?.SetUpdateStatus("Checking for updates...", false);
+                var info = await _updater.CheckAsync();
+                if (info == null)
+                {
+                    Dbg("Update check: no info");
+                    if (manual)
+                    {
+                        MessageBox.Show(this, $"No update info available.\nCurrent: v{Updater.CurrentVersion}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    _lockForm?.SetUpdateStatus(null, false);
+                    _countdownForm?.SetUpdateStatus(null, false);
+                    return;
+                }
+                Dbg($"Update check: latest={info.Version} current={Updater.CurrentVersion} available={info.UpdateAvailable}");
+                if (info.UpdateAvailable && !string.IsNullOrWhiteSpace(info.DownloadUrl))
+                {
+                    _pendingUpdate = info;
+                    _lockForm?.SetUpdateStatus($"Update v{info.Version} available", true, info.Version, info.DownloadUrl);
+                    _countdownForm?.SetUpdateStatus($"v{info.Version} available", true, info.Version, info.DownloadUrl);
+                    Dbg($"Update available: v{info.Version}");
+                    if (!manual)
+                    {
+                        // Optional: could auto-prompt — for now just show banner
+                    }
+                }
+                else
+                {
+                    _pendingUpdate = null;
+                    if (manual)
+                    {
+                        MessageBox.Show(this, $"You are on the latest version.\nCurrent: v{Updater.CurrentVersion}\nLatest: v{info.Version}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    _lockForm?.SetUpdateStatus($"v{Updater.CurrentVersion} • up to date", false);
+                    _countdownForm?.SetUpdateStatus($"v{Updater.CurrentVersion}", false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Dbg($"Update check failed: {ex.Message}");
+                if (manual)
+                    MessageBox.Show(this, $"Update check failed:\n{ex.Message}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _lockForm?.SetUpdateStatus("Update check failed", false);
+                _countdownForm?.SetUpdateStatus("Update check failed", false);
+            }
+        }
+
+        public async Task ApplyPendingUpdateAsync(IWin32Window? owner = null)
+        {
+            if (_updateInProgress) return;
+            var info = _pendingUpdate;
+            if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
+            {
+                await CheckForUpdatesAsync(true);
+                info = _pendingUpdate;
+                if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
+                    return;
+            }
+            var confirm = MessageBox.Show(owner as Form ?? this,
+                $"Install update v{info.Version}?\n\nCurrent: v{Updater.CurrentVersion}\nLatest: v{info.Version}\n\nThe agent will close and restart automatically.\nAny active session timer keeps running on the server.",
+                "Update GamepointAgent",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+            if (confirm != DialogResult.Yes) return;
+
+            _updateInProgress = true;
+            _lockForm?.SetUpdateStatus($"Downloading v{info.Version}...", false);
+            _countdownForm?.SetUpdateStatus($"Downloading v{info.Version}...", false);
+            try
+            {
+                var ok = await _updater.DownloadAndApplyAsync(info.DownloadUrl!, info.Version, owner ?? this,
+                    status =>
+                    {
+                        try
+                        {
+                            if (IsHandleCreated) BeginInvoke(() =>
+                            {
+                                _lockForm?.SetUpdateStatus(status, false);
+                                _countdownForm?.SetUpdateStatus(status, false);
+                            });
+                        }
+                        catch { }
+                    });
+                if (ok)
+                {
+                    Dbg("Update launched — exiting");
+                    // Exit will let the batch file swap and restart
+                    Application.Exit();
+                }
+                else
+                {
+                    _updateInProgress = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Dbg($"Apply update failed: {ex.Message}");
+                _updateInProgress = false;
+                MessageBox.Show(owner as Form ?? this, $"Update failed:\n{ex.Message}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1156,6 +1309,12 @@ try
                     _countdownForm?.SetBalances();
                     _countdownForm?.Hide();
                 }
+                // Sync update banner for newly created forms
+                if (_pendingUpdate != null && !string.IsNullOrWhiteSpace(_pendingUpdate.DownloadUrl))
+                {
+                    _lockForm?.SetUpdateStatus($"Update v{_pendingUpdate.Version} available", true, _pendingUpdate.Version, _pendingUpdate.DownloadUrl);
+                    _countdownForm?.SetUpdateStatus($"v{_pendingUpdate.Version} available", true, _pendingUpdate.Version, _pendingUpdate.DownloadUrl);
+                }
             }
         }
 
@@ -1247,6 +1406,9 @@ try
         private readonly Label _lblStartError;
         private readonly Button _btnStart;
         private readonly Button _btnLogout;
+        private readonly Label _lblUpdate;
+        private readonly Button _btnUpdate;
+        private readonly Button _btnCheckUpdate;
 
         private LoginUser? _user;
         private string _payment = "points";
@@ -1407,7 +1569,23 @@ try
             _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, _lblCredit, _btnCredit, _lblPayWith, _btnPoints, _btnGfunds, _lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, _btnLogout });
             LayoutPaymentPanel();
 
-            Controls.AddRange(new Control[] { titleGame, titlePoint, stationLine, hint, _card });
+            _lblUpdate = DarkLabel($"v{Updater.CurrentVersion}", 8, Color.FromArgb(120, 130, 150));
+            _lblUpdate.AutoSize = true;
+            _lblUpdate.Cursor = Cursors.Hand;
+            _lblUpdate.Click += async (_, _) => await _controller.CheckForUpdatesAsync(true);
+            _btnUpdate = DarkButton("Update Now", COLOR_GREEN);
+            MakeGradientButton(_btnUpdate, Color.FromArgb(22, 163, 74), Color.FromArgb(5, 150, 105));
+            _btnUpdate.Size = new Size(110, 28);
+            _btnUpdate.Font = F(8, FontStyle.Bold);
+            _btnUpdate.Visible = false;
+            _btnUpdate.Click += async (_, _) => await _controller.ApplyPendingUpdateAsync(this);
+            _btnCheckUpdate = DarkButton("Check for Update", "#334155");
+            RoundButton(_btnCheckUpdate, 8);
+            _btnCheckUpdate.Size = new Size(120, 26);
+            _btnCheckUpdate.Font = F(7);
+            _btnCheckUpdate.Click += async (_, _) => await _controller.CheckForUpdatesAsync(true);
+
+            Controls.AddRange(new Control[] { titleGame, titlePoint, stationLine, hint, _card, _lblUpdate, _btnUpdate, _btnCheckUpdate });
             _card.Controls.Add(_loginPanel);
             _card.Controls.Add(_paymentPanel);
 
@@ -1417,6 +1595,28 @@ try
 
             Resize += (_, _) => CenterCard(titleGame, titlePoint, stationLine, hint);
             Dbg($"LockForm ctor done login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} card={PanelState(_card)}");
+        }
+
+        public void SetUpdateStatus(string? text, bool hasUpdate, string? version = null, string? url = null)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try
+            {
+                BeginInvoke(() =>
+                {
+                    if (!string.IsNullOrEmpty(text))
+                        _lblUpdate.Text = text;
+                    else
+                        _lblUpdate.Text = $"v{Updater.CurrentVersion}";
+                    _btnUpdate.Visible = hasUpdate;
+                    if (hasUpdate && !string.IsNullOrEmpty(version))
+                        _btnUpdate.Text = $"Update to v{version}";
+                    // Keep check button visible but subtle
+                    _btnCheckUpdate.Visible = true;
+                    CenterCard(Controls[0], Controls[1], Controls[2], Controls[3]);
+                });
+            }
+            catch { }
         }
 
         private void CenterCard(Control titleGame, Control titlePoint, Control stationLine, Control hint)
@@ -1433,6 +1633,22 @@ try
             hint.Location = new Point(cardX, stationLine.Bottom + 8);
             _card.Location = new Point(cardX, cardY);
             _card.Invalidate();
+            // Update banner at bottom-left, below card
+            try
+            {
+                var lblUpd = _lblUpdate;
+                var btnChk = _btnCheckUpdate;
+                var btnUpd = _btnUpdate;
+                if (lblUpd != null)
+                {
+                    lblUpd.Location = new Point(cardX, Height - 38);
+                    if (btnChk != null)
+                        btnChk.Location = new Point(lblUpd.Right + 10, Height - 40);
+                    if (btnUpd != null && btnUpd.Visible && btnChk != null)
+                        btnUpd.Location = new Point(btnChk.Right + 8, Height - 42);
+                }
+            }
+            catch { }
         }
 
         private void LayoutPaymentPanel()
@@ -1884,6 +2100,9 @@ try
         private readonly Button _btnChangePin;
         private readonly Button _btnLogout;
         private readonly Button _btnMin;
+        private readonly Label _lblUpdate;
+        private readonly Button _btnUpdate;
+        private readonly Button _btnCheckUpdate;
         private bool _minimized;
         private bool _hasUser;
         private bool _dragging;
@@ -2029,6 +2248,50 @@ try
             };
             _btnMin.Click += (_, _) => SetMinimized(true);
 
+            _lblUpdate = new Label
+            {
+                AutoSize = false,
+                ForeColor = Color.FromArgb(150, 160, 175),
+                BackColor = Color.Transparent,
+                Font = F(7),
+                Location = new Point(12, 148),
+                Size = new Size(110, 14),
+                Text = $"v{Updater.CurrentVersion}",
+                TextAlign = ContentAlignment.MiddleLeft,
+                Cursor = Cursors.Hand
+            };
+            _lblUpdate.Click += async (_, _) => await _controller.CheckForUpdatesAsync(true);
+            _btnUpdate = new Button
+            {
+                Text = "Update Now",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = C(COLOR_GREEN),
+                ForeColor = Color.White,
+                Font = F(7, FontStyle.Bold),
+                Size = new Size(78, 22),
+                Location = new Point(124, 144),
+                FlatAppearance = { BorderSize = 0 },
+                Visible = false
+            };
+            MakeGradientButton(_btnUpdate, Color.FromArgb(22, 163, 74), Color.FromArgb(5, 150, 105));
+            _btnUpdate.Click += async (_, _) => await _controller.ApplyPendingUpdateAsync(this);
+            _btnCheckUpdate = new Button
+            {
+                Text = "Check",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = C("#334155"),
+                ForeColor = Color.White,
+                Font = F(7),
+                Size = new Size(44, 22),
+                Location = new Point(204, 144),
+                FlatAppearance = { BorderSize = 0 }
+            };
+            RoundButton(_btnCheckUpdate, 6);
+            _btnCheckUpdate.Click += async (_, _) => await _controller.CheckForUpdatesAsync(true);
+            _lblUpdate.MouseDown += OnDragStart;
+            _btnUpdate.MouseDown += OnDragStart;
+            _btnCheckUpdate.MouseDown += OnDragStart;
+
             MouseDown += OnDragStart;
             MouseMove += OnDragMove;
             MouseUp += (_, _) => EndDrag();
@@ -2046,9 +2309,12 @@ try
             Controls.Add(_btnChangePin);
             Controls.Add(_btnLogout);
             Controls.Add(_btnMin);
+            Controls.Add(_lblUpdate);
+            Controls.Add(_btnUpdate);
+            Controls.Add(_btnCheckUpdate);
 
             var screen = Screen.PrimaryScreen?.WorkingArea ?? Screen.GetBounds(Point.Empty);
-            Location = new Point(screen.Right - 276, screen.Bottom - 154);
+            Location = new Point(screen.Right - 276, screen.Bottom - 170);
             ApplyLayout();
         }
 
@@ -2099,6 +2365,9 @@ try
                 _btnChangePin.Visible = false;
                 _btnLogout.Visible = false;
                 _btnMin.Visible = false;
+                _lblUpdate.Visible = false;
+                _btnUpdate.Visible = false;
+                _btnCheckUpdate.Visible = false;
                 _label.Font = F(12, FontStyle.Bold);
                 _label.Location = new Point(8, 5);
                 _label.Cursor = Cursors.Hand;
@@ -2113,11 +2382,38 @@ try
                 _btnChangePin.Visible = _hasUser;
                 _btnLogout.Visible = true;
                 _btnMin.Visible = true;
+                _lblUpdate.Visible = true;
+                // _btnUpdate visibility managed by SetUpdateStatus; keep as-is unless no update yet
+                _btnCheckUpdate.Visible = true;
                 _label.Font = F(18, FontStyle.Bold);
                 _label.Location = new Point(12, 24);
                 _label.Cursor = Cursors.Default;
                 BringToFront();
             }
+        }
+
+        public void SetUpdateStatus(string? text, bool hasUpdate, string? version = null, string? url = null)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try
+            {
+                BeginInvoke(() =>
+                {
+                    if (!string.IsNullOrEmpty(text))
+                        _lblUpdate.Text = text;
+                    else
+                        _lblUpdate.Text = $"v{Updater.CurrentVersion}";
+                    // Only show Update button when hasUpdate, keep Check always in expanded mode
+                    if (!_minimized)
+                    {
+                        _btnUpdate.Visible = hasUpdate;
+                        if (hasUpdate && !string.IsNullOrEmpty(version))
+                            _btnUpdate.Text = $"Update v{version}";
+                        _btnCheckUpdate.Visible = true;
+                    }
+                });
+            }
+            catch { }
         }
 
         private async Task LogoutAsync()

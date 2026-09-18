@@ -3,5 +3,8 @@
   "agentKey": "PASTE-STATION-AGENT-KEY-HERE",
   "stationName": "PC-1",
   "pollSeconds": 10,
-  "stationPort": 3987
+  "stationPort": 3987,
+  "updateCheckMinutes": 60,
+  "githubRepo": "markclarus1990/gamepoint",
+  "githubToken": ""
 }

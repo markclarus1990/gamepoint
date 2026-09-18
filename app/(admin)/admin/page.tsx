@@ -313,7 +313,7 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
       };
     case "station_command": {
       const cmd = str(d.command);
-      const CmdIcon = cmd === "shutdown" ? Power : cmd === "restart" ? RotateCcw : Camera;
+      const CmdIcon = cmd === "shutdown" ? Power : cmd === "restart" ? RotateCcw : cmd === "update" ? Download : Camera;
       return {
         Icon: CmdIcon,
         color: "text-zinc-400 bg-zinc-500/10",
@@ -387,7 +387,7 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
     case "agent_command_done": {
       const station = str(d.station ?? target);
       const cmd = str(d.command);
-      const CmdIcon = cmd === "shutdown" ? Power : cmd === "restart" ? RotateCcw : Camera;
+      const CmdIcon = cmd === "shutdown" ? Power : cmd === "restart" ? RotateCcw : cmd === "update" ? Download : Camera;
       return {
         Icon: CmdIcon,
         color: "text-emerald-400 bg-emerald-500/10",
@@ -757,10 +757,12 @@ export default function Admin() {
 
   const sendStationCommand = async (
     ids: string[],
-    command: "shutdown" | "restart" | "screenshot",
+    command: "shutdown" | "restart" | "screenshot" | "update",
     target: string
   ) => {
-    if (command === "shutdown" || command === "restart") {
+    if (command === "update") {
+      if (!confirm(`Push update to ${target}? Each PC will download the latest agent from GitHub and restart.`)) return;
+    } else if (command === "shutdown" || command === "restart") {
       const verb = command === "restart" ? "restart" : "shut down";
       if (!confirm(`${verb[0].toUpperCase()}${verb.slice(1)} ${target}?`)) return;
     }
@@ -1006,6 +1008,15 @@ export default function Admin() {
                 </div>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => sendStationCommand([], "update", "all PCs")}
+                    disabled={stations.length === 0}
+                    title="Push latest GitHub Release to all online PCs"
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 disabled:opacity-40 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="hidden sm:inline">Update All</span>
+                  </button>
+                  <button
                     onClick={() => sendStationCommand([], "restart", "all PCs")}
                     disabled={stations.length === 0}
                     className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
@@ -1176,6 +1187,24 @@ export default function Admin() {
                           <Power className="w-3.5 h-3.5" />
                         )}
                         Shutdown
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          sendStationCommand([s.id], "update", s.name)
+                        }
+                        disabled={
+                          busy === `update:${s.id}:${s.name}` || !s.online
+                        }
+                        title="Send update — PC will download latest GitHub Release"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 disabled:opacity-40 transition-colors"
+                      >
+                        {busy === `update:${s.id}:${s.name}` ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        Update
                       </button>
 
                       <button

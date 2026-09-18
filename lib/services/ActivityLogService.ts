@@ -237,7 +237,7 @@ export class ActivityLogService {
     });
   }
 
-  async logStationCommand(adminName: string, stations: string[], command: "shutdown" | "restart" | "screenshot"): Promise<void> {
+  async logStationCommand(adminName: string, stations: string[], command: "shutdown" | "restart" | "screenshot" | "update"): Promise<void> {
     await this.repo.log({
       actor_name: adminName,
       actor_role: "admin",

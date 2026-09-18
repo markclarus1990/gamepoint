@@ -7,7 +7,7 @@ const activityLog = new ActivityLogService();
 export async function POST(req: Request) {
   const { ids, all, command } = await req.json();
 
-  if (command !== "shutdown" && command !== "restart" && command !== "screenshot") {
+  if (command !== "shutdown" && command !== "restart" && command !== "screenshot" && command !== "update") {
     return Response.json({ error: "Invalid command" }, { status: 400 });
   }
 
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     void activityLog.logStationCommand(
       "Admin",
       names.length > 0 ? names : all ? ["all"] : (ids as string[]),
-      command as "shutdown" | "restart" | "screenshot"
+      command as "shutdown" | "restart" | "screenshot" | "update"
     );
 
     return Response.json({ success: true });
