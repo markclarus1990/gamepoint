@@ -2164,8 +2164,8 @@ try
                 ForeColor = Color.White,
                 Font = F(9, FontStyle.Bold),
                 Height = 30,
-                Location = new Point(92, 112),
-                Size = new Size(76, 30),
+                Location = new Point(116, 112),
+                Size = new Size(72, 30),
                 FlatAppearance = { BorderSize = 0 }
             };
             _btnLogout.Click += async (_, _) => await LogoutAsync();
@@ -2217,14 +2217,14 @@ try
             };
             _btnChangePin = new Button
             {
-                Text = "Change PIN",
+                Text = "Change Password",
                 FlatStyle = FlatStyle.Flat,
                 BackColor = C("#334155"),
                 ForeColor = Color.White,
-                Font = F(9, FontStyle.Bold),
+                Font = F(8, FontStyle.Bold),
                 Height = 30,
                 Location = new Point(12, 112),
-                Size = new Size(76, 30),
+                Size = new Size(96, 30),
                 FlatAppearance = { BorderSize = 0 },
                 Visible = false
             };
