@@ -524,12 +524,31 @@ internal static class Program
             }
         }
 
-        public async Task CheckForUpdatesAsync(bool manual)
+        /// <summary>
+        /// Owner for update dialogs. Must be a VISIBLE TopMost form — dialogs owned by
+        /// the invisible ControllerForm open behind the fullscreen lock screen and look
+        /// like "nothing happens" when Check is clicked.
+        /// </summary>
+        private Form UpdateDialogOwner()
+        {
+            try
+            {
+                if (_lockForm is not null && !_lockForm.IsDisposed && _lockForm.Visible)
+                    return _lockForm;
+                if (_countdownForm is not null && !_countdownForm.IsDisposed && _countdownForm.Visible)
+                    return _countdownForm;
+            }
+            catch { }
+            return this;
+        }
+
+        public async Task CheckForUpdatesAsync(bool manual, bool autoApply = true)
         {
             if (_updateInProgress) return;
             // throttle: at most once per 2 min unless manual
             if (!manual && DateTime.Now - _lastUpdateCheck < TimeSpan.FromMinutes(2)) return;
             _lastUpdateCheck = DateTime.Now;
+            var dlgOwner = UpdateDialogOwner();
             try
             {
                 Dbg($"Update check start (manual={manual}) current={Updater.CurrentVersion}");
@@ -541,10 +560,10 @@ internal static class Program
                     Dbg("Update check: no info");
                     if (manual)
                     {
-                        MessageBox.Show(this, $"No update info available.\nCurrent: v{Updater.CurrentVersion}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(dlgOwner, $"No update info available.\nCurrent: v{Updater.CurrentVersion}\n\nCheck agent-debug.log for details.", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
-                    _lockForm?.SetUpdateStatus(null, false);
-                    _countdownForm?.SetUpdateStatus(null, false);
+                    _lockForm?.SetUpdateStatus("No update info — see log", false);
+                    _countdownForm?.SetUpdateStatus("No update info", false);
                     return;
                 }
                 Dbg($"Update check: latest={info.Version} current={Updater.CurrentVersion} available={info.UpdateAvailable}");
@@ -554,9 +573,10 @@ internal static class Program
                     _lockForm?.SetUpdateStatus($"Update v{info.Version} available", true, info.Version, info.DownloadUrl);
                     _countdownForm?.SetUpdateStatus($"v{info.Version} available", true, info.Version, info.DownloadUrl);
                     Dbg($"Update available: v{info.Version}");
-                    if (!manual)
+                    if (manual && autoApply)
                     {
-                        // Optional: could auto-prompt — for now just show banner
+                        // Jump straight to the install prompt so one click does check+update
+                        await ApplyPendingUpdateAsync(dlgOwner);
                     }
                 }
                 else
@@ -564,7 +584,7 @@ internal static class Program
                     _pendingUpdate = null;
                     if (manual)
                     {
-                        MessageBox.Show(this, $"You are on the latest version.\nCurrent: v{Updater.CurrentVersion}\nLatest: v{info.Version}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(dlgOwner, $"You are on the latest version.\nCurrent: v{Updater.CurrentVersion}\nLatest: v{info.Version}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     _lockForm?.SetUpdateStatus($"v{Updater.CurrentVersion} • up to date", false);
                     _countdownForm?.SetUpdateStatus($"v{Updater.CurrentVersion}", false);
@@ -574,7 +594,7 @@ internal static class Program
             {
                 Dbg($"Update check failed: {ex.Message}");
                 if (manual)
-                    MessageBox.Show(this, $"Update check failed:\n{ex.Message}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(dlgOwner, $"Update check failed:\n{ex.Message}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 _lockForm?.SetUpdateStatus("Update check failed", false);
                 _countdownForm?.SetUpdateStatus("Update check failed", false);
             }
@@ -583,27 +603,34 @@ internal static class Program
         public async Task ApplyPendingUpdateAsync(IWin32Window? owner = null)
         {
             if (_updateInProgress) return;
+            var dlgOwner = (owner as Form) ?? UpdateDialogOwner();
             var info = _pendingUpdate;
             if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
             {
-                await CheckForUpdatesAsync(true);
+                // autoApply:false — this method shows the confirm itself; avoid double prompt
+                await CheckForUpdatesAsync(true, autoApply: false);
                 info = _pendingUpdate;
                 if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
                     return;
+                dlgOwner = UpdateDialogOwner();
             }
-            var confirm = MessageBox.Show(owner as Form ?? this,
+            // Guard before the modal so double-clicks can't stack two prompts
+            _updateInProgress = true;
+            var confirm = MessageBox.Show(dlgOwner,
                 $"Install update v{info.Version}?\n\nCurrent: v{Updater.CurrentVersion}\nLatest: v{info.Version}\n\nThe agent will close and restart automatically.\nAny active session timer keeps running on the server.",
                 "Update GamepointAgent",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
-            if (confirm != DialogResult.Yes) return;
-
-            _updateInProgress = true;
+            if (confirm != DialogResult.Yes)
+            {
+                _updateInProgress = false;
+                return;
+            }
             _lockForm?.SetUpdateStatus($"Downloading v{info.Version}...", false);
             _countdownForm?.SetUpdateStatus($"Downloading v{info.Version}...", false);
             try
             {
-                var ok = await _updater.DownloadAndApplyAsync(info.DownloadUrl!, info.Version, owner ?? this,
+                var ok = await _updater.DownloadAndApplyAsync(info.DownloadUrl!, info.Version, dlgOwner,
                     status =>
                     {
                         try
@@ -631,7 +658,7 @@ internal static class Program
             {
                 Dbg($"Apply update failed: {ex.Message}");
                 _updateInProgress = false;
-                MessageBox.Show(owner as Form ?? this, $"Update failed:\n{ex.Message}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(dlgOwner, $"Update failed:\n{ex.Message}", "GamepointAgent", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
