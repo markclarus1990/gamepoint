@@ -2353,6 +2353,9 @@ try
                 SetMinimized(false);
                 return;
             }
+            // Never steal mouse capture from clickable controls: setting Capture
+            // on the form during a Button/Label press prevents Click from firing.
+            if (sender is Button || sender == _lblUpdate) return;
             _dragging = true;
             _dragOffset = new Point(Cursor.Position.X - Location.X, Cursor.Position.Y - Location.Y);
             Capture = true;
