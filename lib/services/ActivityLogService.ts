@@ -335,4 +335,15 @@ export class ActivityLogService {
       details: {},
     });
   }
+
+  async logAdminResetPin(adminName: string, targetName: string): Promise<void> {
+    await this.repo.log({
+      actor_name: adminName,
+      actor_role: "admin",
+      action: "admin_reset_pin",
+      target_type: "user",
+      target_id: targetName,
+      details: {},
+    });
+  }
 }

@@ -367,6 +367,13 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
         title: `${log.actor_name} changed PIN`,
         subtitle: "PIN updated via agent",
       };
+    case "admin_reset_pin":
+      return {
+        Icon: KeyRound,
+        color: "text-amber-400 bg-amber-500/10 border border-amber-500/20",
+        title: `Admin reset PIN → ${target}`,
+        subtitle: "PIN reset by admin (test)",
+      };
     case "agent_screenshot": {
       const station = str(d.station ?? target);
       const bytes = num(d.image_bytes);
@@ -507,7 +514,9 @@ export default function Admin() {
   const [viewStation, setViewStation] = useState<Station | null>(null);
   const [shareStation, setShareStation] = useState<Station | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<null | "load" | "deduct">(null);
+  const [busyAction, setBusyAction] = useState<null | "load" | "deduct" | "resetPin">(null);
+  const [showResetPinModal, setShowResetPinModal] = useState(false);
+  const [resetPin, setResetPin] = useState("1234");
   const [toast, setToast] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -692,6 +701,28 @@ export default function Admin() {
       setLoadPoints("");
       loadUsers();
       notify(`Account loaded for ${selectedUser.name}.`);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const resetPinForUser = async () => {
+    const pin = resetPin.trim();
+    if (!selectedUser || pin.length < 4 || pin.length > 24 || busyAction) return;
+    setBusyAction("resetPin");
+    try {
+      const res = await fetch("/api/admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: selectedUser.id, newPin: pin }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        notify(data.error);
+        return;
+      }
+      setShowResetPinModal(false);
+      notify(`PIN reset for ${selectedUser.name} → ${pin} (test)`);
     } finally {
       setBusyAction(null);
     }
@@ -1312,7 +1343,7 @@ export default function Admin() {
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex gap-1.5">
+                    <div className="flex flex-wrap gap-1.5">
                       <button
                         onClick={() => {
                           setSelectedUser(u);
@@ -1330,6 +1361,18 @@ export default function Admin() {
                         className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
                       >
                         Deduct
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedUser(u);
+                          setResetPin("1234");
+                          setShowResetPinModal(true);
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors border border-amber-500/20"
+                        title="Reset password/PIN for testing"
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        Reset
                       </button>
                       <button
                         onClick={() => openHistory(u)}
@@ -1696,6 +1739,7 @@ export default function Admin() {
               <option value="player_login_failed">Login Failed</option>
               <option value="player_logout">Player Logout</option>
               <option value="pin_change">PIN Change</option>
+              <option value="admin_reset_pin">Admin Reset PIN (test)</option>
             </select>
             <input
               type="text"
@@ -2205,6 +2249,84 @@ export default function Admin() {
           stations={stations}
           onClose={() => setViewStation(null)}
         />
+      )}
+
+      {/* ============ RESET PIN MODAL (TEST) ============ */}
+      {showResetPinModal && selectedUser && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+          <div className="w-full sm:max-w-md bg-[#0f1b2e] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-lg">
+                Reset PIN <span className="text-xs font-normal text-amber-400 border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 rounded-full ml-1">TEST</span> —{" "}
+                <span className="text-pink-500">{selectedUser.name}</span>
+              </h2>
+              <button
+                onClick={() => setShowResetPinModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="text-sm text-zinc-400">
+              Set a new PIN for this user. This bypasses the old PIN — admin test tool.
+            </div>
+            <div className="text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+              The new PIN will be bcrypt-hashed. User can log in with it immediately. Logged as <code className="text-amber-300">admin_reset_pin</code>.
+            </div>
+
+            <div>
+              <label className="text-xs text-zinc-500 mb-1 block">New PIN (4-24 chars)</label>
+              <input
+                type="text"
+                value={resetPin}
+                onChange={(e) => setResetPin(e.target.value)}
+                placeholder="e.g. 1234"
+                maxLength={24}
+                className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-amber-500/60"
+              />
+              <div className="grid grid-cols-4 gap-2 mt-2">
+                {["1234", "0000", "1111", "4321"].map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setResetPin(v)}
+                    className={`py-2 rounded-xl text-xs font-medium transition-colors ${
+                      resetPin === v ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white" : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+              <div className="text-xs text-zinc-500 mt-1">{resetPin.length < 4 ? `${4 - resetPin.length} more chars needed` : `${resetPin.length}/24`}</div>
+            </div>
+
+            <button
+              onClick={resetPinForUser}
+              disabled={busyAction === "resetPin" || resetPin.trim().length < 4 || resetPin.trim().length > 24}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 disabled:opacity-40 transition-all flex items-center justify-center gap-2"
+            >
+              {busyAction === "resetPin" ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Resetting…
+                </>
+              ) : (
+                <>
+                  <KeyRound className="w-4 h-4" /> Reset to “{resetPin.trim() || "…" }”
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => {
+                setShowResetPinModal(false);
+              }}
+              className="w-full py-2 text-sm text-zinc-400 hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Toast */}
