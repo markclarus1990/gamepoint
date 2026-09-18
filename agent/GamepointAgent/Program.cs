@@ -2198,7 +2198,7 @@ try
             _btnLogout.Click += async (_, _) => await LogoutAsync();
             _btnAddTime = new Button
             {
-                Text = "Add Time",
+                Text = "Time",
                 FlatStyle = FlatStyle.Flat,
                 BackColor = C(COLOR_ACCENT),
                 ForeColor = Color.White,
