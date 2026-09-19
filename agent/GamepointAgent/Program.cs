@@ -1471,7 +1471,7 @@ try
             _card = new Panel
             {
                 BackColor = Color.Transparent,
-                Size = new Size(320, 560),
+                Size = new Size(320, 380),
                 Anchor = AnchorStyles.None
             };
             _card.Region = RoundedRegion(_card, 14);
@@ -1493,7 +1493,7 @@ try
             };
 
             // ---- LOGIN PANEL ---- (compact, transparent)
-            _loginPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 440) };
+            _loginPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 340) };
             var inputName = ModernInput(false, out _txtName, 280);
             var inputPin = ModernInput(true, out _txtPin, 280);
             var lblName = DarkLabel("Player Name", 10, Color.FromArgb(160, 160, 175));
@@ -1516,18 +1516,19 @@ try
             lblName.Location = new Point(0, loginY);
             loginY += 18;
             inputName.Location = new Point(0, loginY);
-            loginY += 56;
+            loginY += 52;
             lblPin.Location = new Point(0, loginY);
             loginY += 18;
             inputPin.Location = new Point(0, loginY);
-            loginY += 56;
+            loginY += 52;
             btnLogin.Location = new Point(0, loginY);
             btnLogin.Size = new Size(280, 44);
-            loginY += 56;
+            loginY += 52;
             _lblError.Location = new Point(0, loginY);
-            loginY += 46;
+            loginY += 24;
             _lblStatus.Location = new Point(0, loginY);
-            btnAdminNote.Location = new Point(0, 410);
+            loginY += 24;
+            btnAdminNote.Location = new Point(0, loginY + 16);
 
             _loginPanel.Controls.AddRange(new Control[] { lblName, inputName, lblPin, inputPin, btnLogin, _lblError, _lblStatus, btnAdminNote });
 
@@ -1769,6 +1770,8 @@ try
 
         private void ShowLogin()
         {
+            _card.Size = new Size(320, 380);
+            _card.Region = RoundedRegion(_card, 14);
             _loginPanel.Visible = true;
             _paymentPanel.Visible = false;
             _loginPanel.BringToFront();
@@ -1787,6 +1790,8 @@ try
 
         public void ResetForNewLock()
         {
+            _card.Size = new Size(320, 380);
+            _card.Region = RoundedRegion(_card, 14);
             _user = null;
             _payment = "points";
             _selectedAmount = 0;
@@ -1948,6 +1953,8 @@ try
 
         private void ShowPayment()
         {
+            _card.Size = new Size(320, 560);
+            _card.Region = RoundedRegion(_card, 14);
             _lblResume.Visible = _resumeSeconds > 0;
             _btnResume.Visible = _resumeSeconds > 0;
             _lblCredit.Visible = _creditMinutes > 0;
