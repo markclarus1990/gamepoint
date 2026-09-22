@@ -29,6 +29,7 @@ import {
   Wallet,
   Trophy,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { AdminNumberInput } from "@/components/AdminNumberInput";
 
@@ -517,6 +518,7 @@ export default function Admin() {
   const [viewStation, setViewStation] = useState<Station | null>(null);
   const [shareStation, setShareStation] = useState<Station | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<null | "load" | "deduct" | "resetPin">(null);
   const [showResetPinModal, setShowResetPinModal] = useState(false);
   const [resetPin, setResetPin] = useState("1234");
@@ -778,6 +780,44 @@ export default function Admin() {
     const data = await res.json();
     setBusy(null);
     notify(data.error || `Command sent to ${target}.`);
+  };
+
+  // Manual on-demand activity refresh: ask the agent for its current
+  // window/process, then wait until stations shows data newer than the click
+  // (agent polls commands every ~10s, so this takes up to ~20s).
+  const refreshActivity = async (s: Station) => {
+    if (refreshingId || !s.online) return;
+    setRefreshingId(s.id);
+    const since = Date.now();
+    try {
+      await fetch("/api/stations/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [s.id], command: "activity" }),
+      });
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const res = await fetch("/api/stations");
+          const data = await res.json();
+          const list: Station[] = data.stations || [];
+          setStations(list);
+          const cur = list.find((x) => x.id === s.id);
+          if (
+            cur?.activity_at &&
+            new Date(cur.activity_at).getTime() > since
+          ) {
+            notify(`Activity updated for ${s.name}.`);
+            return;
+          }
+        } catch {
+          /* keep waiting */
+        }
+      }
+      notify(`No fresh activity from ${s.name} — agent may be offline or outdated.`);
+    } finally {
+      setRefreshingId(null);
+    }
   };
 
   const endStationSession = async (name: string) => {
@@ -1129,6 +1169,17 @@ export default function Admin() {
                       >
                         <Camera className="w-3.5 h-3.5" />
                         View
+                      </button>
+                      <button
+                        onClick={() => refreshActivity(s)}
+                        disabled={!s.online || refreshingId === s.id}
+                        title="Refresh live activity (window / game)"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 disabled:opacity-40 transition-colors"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${refreshingId === s.id ? "animate-spin" : ""}`}
+                        />
+                        {refreshingId === s.id ? "Reading…" : "Refresh"}
                       </button>
 
                       {!s.active ? (
@@ -2404,7 +2455,11 @@ function ScreenshotModal({
     h: number;
   } | null>(null);
   const [localStations, setLocalStations] = useState(stations);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const controllingRef = useRef(false);
+  // Pauses the auto screenshot command while a manual activity refresh is in
+  // flight — both share one command slot, so they would overwrite each other.
+  const skipShotRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const live = localStations.find((s) => s.id === station.id) ?? station;
@@ -2450,7 +2505,7 @@ function ScreenshotModal({
     }
 
     const requestShot = async () => {
-      if (!alive) return;
+      if (!alive || skipShotRef.current) return;
       try {
         const res = await fetch("/api/stations/command", {
           method: "POST",
@@ -2539,6 +2594,46 @@ function ScreenshotModal({
     controllingRef.current = action === "start";
     setRequesting(false);
     setError(null);
+  };
+
+  // Manual on-demand refresh: send the activity command immediately, then wait
+  // until this station reports data newer than the click (agent polls commands
+  // every ~10s, so allow ~20s). Auto screenshots pause meanwhile so the two
+  // commands don't overwrite each other.
+  const manualRefresh = async () => {
+    if (manualRefreshing || !live.online) return;
+    setManualRefreshing(true);
+    skipShotRef.current = true;
+    const since = Date.now();
+    try {
+      await fetch("/api/stations/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [station.id], command: "activity" }),
+      });
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const res = await fetch("/api/stations");
+          const data = await res.json();
+          const list: Station[] = data.stations || [];
+          setLocalStations(list);
+          const cur = list.find((x) => x.id === station.id) ?? live;
+          if (cur.activity_at && new Date(cur.activity_at).getTime() > since) {
+            setError(null);
+            return;
+          }
+        } catch {
+          /* keep waiting */
+        }
+      }
+      setError("No fresh activity — agent may be offline or outdated.");
+    } catch {
+      setError("Cannot reach the server");
+    } finally {
+      setManualRefreshing(false);
+      skipShotRef.current = false;
+    }
   };
 
   const imgPoint = (e: { clientX: number; clientY: number }) => {
@@ -2669,6 +2764,15 @@ function ScreenshotModal({
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={manualRefresh}
+              disabled={!live.online || manualRefreshing}
+              title="Refresh live activity now"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600/80 hover:bg-sky-500/80 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${manualRefreshing ? "animate-spin" : ""}`} />
+              {manualRefreshing ? "Reading…" : "Refresh"}
+            </button>
             <button
               onClick={toggleControl}
               disabled={!live.online}

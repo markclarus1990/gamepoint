@@ -203,7 +203,67 @@ internal static class Program
         panel.Region = RoundedRegion(panel, 10);
         panel.Controls.Add(tb);
         box = tb;
+        if (password)
+        {
+            tb.Size = new Size(width - 62, 20);
+            AttachShowToggle(tb);
+        }
         return panel;
+    }
+
+    /// <summary>
+    /// Adds a small eye button at the right edge of a password TextBox.
+    /// Click toggles masking. Defaults to masked.
+    /// </summary>
+    private static Button AttachShowToggle(TextBox box, int rightMargin = 6)
+    {
+        var btn = new Button
+        {
+            Text = "👁",
+            Font = new Font("Segoe UI Emoji", 11),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.Transparent,
+            ForeColor = Color.FromArgb(148, 163, 184),
+            Size = new Size(30, Math.Max(24, box.Height - 2)),
+            Cursor = Cursors.Hand,
+            TabStop = false,
+            Tag = "show-toggle"
+        };
+        btn.FlatAppearance.BorderSize = 0;
+        btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(40, 255, 255, 255);
+        btn.FlatAppearance.MouseDownBackColor = Color.Transparent;
+        var tip = new ToolTip();
+        tip.SetToolTip(btn, "Show");
+        btn.Click += (_, _) => SetShowToggle(btn, box, box.PasswordChar != '\0', tip, true);
+        var parent = box.Parent;
+        if (parent is not null)
+        {
+            btn.Location = new Point(
+                Math.Max(0, box.Right + 4),
+                box.Top + Math.Max(0, (box.Height - btn.Height) / 2));
+            btn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            parent.Controls.Add(btn);
+            btn.BringToFront();
+        }
+        return btn;
+    }
+
+    private static void SetShowToggle(Button? btn, TextBox box, bool show, ToolTip? tip = null, bool keepFocus = true)
+    {
+        box.PasswordChar = show ? '\0' : '•';
+        if (btn is not null)
+        {
+            btn.Text = show ? "🙈" : "👁";
+            btn.ForeColor = show ? C(COLOR_PINK) : Color.FromArgb(148, 163, 184);
+            if (tip is not null) tip.SetToolTip(btn, show ? "Hide" : "Show");
+        }
+        if (!keepFocus) return;
+        try
+        {
+            if (box.CanFocus) box.Focus();
+            box.SelectionStart = box.Text.Length;
+        }
+        catch { }
     }
 
     private static void PaintDarkOverlay(Control c, PaintEventArgs e, int alpha = 150)
@@ -1528,6 +1588,7 @@ try
         private readonly TextBox _txtPin;
         private readonly Panel _inputName;
         private readonly Panel _inputPin;
+        private readonly Button? _btnShowPin;
         private readonly Label _lblHeaderPlayer;
         private readonly Label _lblHeaderPin;
         private readonly Label _lblError;
@@ -1648,6 +1709,7 @@ try
             _inputName = ModernInput(false, out _txtName, 302);
             _lblHeaderPin = DarkLabel("PIN", 8.5f, Color.FromArgb(148, 163, 184), true);
             _inputPin = ModernInput(true, out _txtPin, 302);
+            _btnShowPin = _inputPin.Controls.OfType<Button>().FirstOrDefault(b => (b.Tag as string) == "show-toggle");
 
             _btnLogin = DarkButton("Login", COLOR_ACCENT);
             MakeGradientButton(_btnLogin);
@@ -1990,6 +2052,7 @@ try
             _lblStartError.Text = "";
             _txtName.Text = "";
             _txtPin.Text = "";
+            SetShowToggle(_btnShowPin, _txtPin, false, null, false);
             _txtName.Focus();
             LayoutLoginPanel();
             Dbg($"ShowLogin login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} cardVisible={_card.Visible} cardLoc={_card.Location} formVisible={Visible}");
@@ -2822,6 +2885,9 @@ try
             btnCancel.Size = new Size(90, 38);
 
             Controls.AddRange(new Control[] { title, lblOld, _txtOld, lblNew, _txtNew, lblConfirm, _txtConfirm, _lblError, _btnSave, btnCancel });
+            AttachShowToggle(_txtOld);
+            AttachShowToggle(_txtNew);
+            AttachShowToggle(_txtConfirm);
         }
 
         private static TextBox PinBox()
@@ -2832,7 +2898,7 @@ try
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 Font = F(12),
-                Size = new Size(280, 36),
+                Size = new Size(244, 36),
                 MaxLength = 24,
                 PasswordChar = '•'
             };
