@@ -211,74 +211,52 @@ internal sealed class Updater
 
         try
         {
-            // Clean previous attempt
-            if (File.Exists(newExe)) File.Delete(newExe);
-
-            using var dlReq = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-            dlReq.Headers.Add("User-Agent", "GamepointAgent-Updater");
-            if (!string.IsNullOrWhiteSpace(_githubToken) &&
-                (downloadUrl.Contains("api.github.com") || downloadUrl.Contains("github.com")))
+            // Download with retries — cafe networks drop mid-download, leaving a
+            // truncated file that passes the size check but has no readable
+            // version resource. Retry instead of failing on the first attempt.
+            const int maxAttempts = 3;
+            long received = 0;
+            long? declared = null;
+            Exception? downloadError = null;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                dlReq.Headers.Add("Authorization", $"Bearer {_githubToken}");
-            }
-            // For GitHub release asset browser_download_url from private repo, the URL redirects
-            // and already contains an auth token query — no header needed. But adding it is harmless.
-
-            using var dlClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            // Copy agent key header if present on main http
-            if (_http.DefaultRequestHeaders.Contains("x-agent-key"))
-            {
-                var vals = _http.DefaultRequestHeaders.GetValues("x-agent-key");
-                dlReq.Headers.Add("x-agent-key", vals);
-            }
-
-            using var resp = await dlClient.SendAsync(dlReq, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!resp.IsSuccessStatusCode)
-            {
-                var body = await resp.Content.ReadAsStringAsync(ct);
-                throw new Exception($"Download HTTP {(int)resp.StatusCode}: {body.Substring(0, Math.Min(300, body.Length))}");
-            }
-
-            var total = resp.Content.Headers.ContentLength;
-            await using var netStream = await resp.Content.ReadAsStreamAsync(ct);
-            await using var fileStream = new FileStream(newExe, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-            var buf = new byte[81920];
-            long readTotal = 0;
-            int n;
-            var lastPct = -1;
-            while ((n = await netStream.ReadAsync(buf, 0, buf.Length, ct)) > 0)
-            {
-                await fileStream.WriteAsync(buf, 0, n, ct);
-                readTotal += n;
-                if (total.HasValue && total.Value > 0)
+                ct.ThrowIfCancellationRequested();
+                if (attempt > 1)
                 {
-                    var pct = (int)(readTotal * 100 / total.Value);
-                    if (pct != lastPct && pct % 10 == 0)
-                    {
-                        lastPct = pct;
-                        status?.Invoke($"Downloading v{latestVersion}... {pct}%");
-                    }
+                    status?.Invoke($"Retrying download ({attempt}/{maxAttempts})...");
+                    ProgramDbg($"[DOWNLOAD] retry attempt={attempt}/{maxAttempts}");
+                    await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                }
+                try
+                {
+                    (received, declared) = await DownloadOnceAsync(downloadUrl, newExe, latestVersion, status, ct);
+                    downloadError = null;
+                    break;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    downloadError = ex;
+                    ProgramDbg($"[DOWNLOAD] attempt {attempt}/{maxAttempts} failed: {ex.Message}");
                 }
             }
-
-            // Sanity checks
-            var fi = new FileInfo(newExe);
-            if (!fi.Exists || fi.Length < 1_000_000)
-                throw new Exception($"Downloaded file too small ({fi.Length} bytes) — likely HTML error page.");
-            ProgramDbg($"[DOWNLOAD] complete bytes={fi.Length} path={newExe}");
+            if (downloadError is not null)
+                throw new Exception($"Download failed after {maxAttempts} attempts: {downloadError.Message}");
+            ProgramDbg($"[DOWNLOAD] complete bytes={received} declared={declared?.ToString() ?? "unknown"} path={newExe}");
 
             // VERIFY VERSION — read the embedded version of the downloaded exe
             // before it ever replaces the running one. A mismatch means the
             // release asset is stale/mislabeled; swapping it would leave the
             // agent reporting the wrong version forever.
             status?.Invoke($"Verifying v{latestVersion}...");
-            var detected = ReadEmbeddedVersion(newExe);
-            ProgramDbg($"[VERIFY VERSION] expected={NormalizeVersion(latestVersion)} detected={detected ?? "none"} path={newExe}");
-            if (string.IsNullOrWhiteSpace(detected))
-                throw new Exception("Downloaded exe has no embedded version info — refusing to install.");
-            if (!VersionsMatch(detected, latestVersion))
-                throw new Exception($"Version mismatch: expected v{NormalizeVersion(latestVersion)} but downloaded exe reports v{detected}. Not installing.");
-            ProgramDbg($"[VERIFY VERSION] OK v{detected}");
+            var check = CheckEmbeddedVersion(newExe);
+            ProgramDbg($"[VERIFY VERSION] expected={NormalizeVersion(latestVersion)} result={check.Kind} version={check.Version ?? "none"} detail={check.Detail ?? "-"} bytes={received} path={newExe}");
+            if (check.Kind == VersionCheckKind.Unreadable)
+                throw new Exception($"Cannot read the downloaded file ({check.Detail}) — it may be locked by antivirus/security or the disk. Refusing to install; try again.");
+            if (check.Kind == VersionCheckKind.NoVersion || string.IsNullOrWhiteSpace(check.Version))
+                throw new Exception($"Downloaded exe has no embedded version info (got {received} of {declared?.ToString() ?? "unknown"} bytes) — likely a truncated download. Refusing to install; try again.");
+            if (!VersionsMatch(check.Version, latestVersion))
+                throw new Exception($"Version mismatch: expected v{NormalizeVersion(latestVersion)} but downloaded exe reports v{check.Version}. Not installing.");
+            ProgramDbg($"[VERIFY VERSION] OK v{check.Version}");
 
             status?.Invoke("Preparing update...");
 
@@ -358,27 +336,111 @@ internal sealed class Updater
         }
     }
 
+    public enum VersionCheckKind { Ok, Unreadable, NoVersion }
+
+    public sealed record VersionCheck(VersionCheckKind Kind, string? Version, string? Detail);
+
     /// <summary>
     /// Reads the embedded version of an exe from its version resource
-    /// (ProductVersion first, then FileVersion). Returns normalized "x.y.z"
-    /// or null when the file has no usable version info.
+    /// (ProductVersion first, then FileVersion). Distinguishes an unreadable
+    /// file (locked/truncated — Unreadable) from a file with genuinely no
+    /// version resource (NoVersion) so callers can report the true cause.
     /// </summary>
-    public static string? ReadEmbeddedVersion(string exePath)
+    public static VersionCheck CheckEmbeddedVersion(string exePath)
     {
+        string? raw;
         try
         {
             var info = FileVersionInfo.GetVersionInfo(exePath);
-            var raw = !string.IsNullOrWhiteSpace(info.ProductVersion)
+            raw = !string.IsNullOrWhiteSpace(info.ProductVersion)
                 ? info.ProductVersion
                 : info.FileVersion;
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-            return NormalizeVersion(raw);
         }
         catch (Exception ex)
         {
-            ProgramDbg($"[VERIFY VERSION] could not read version resource: {ex.Message}");
-            return null;
+            return new VersionCheck(VersionCheckKind.Unreadable, null, ex.Message);
         }
+        if (string.IsNullOrWhiteSpace(raw))
+            return new VersionCheck(VersionCheckKind.NoVersion, null, "empty version resource");
+        return new VersionCheck(VersionCheckKind.Ok, NormalizeVersion(raw), null);
+    }
+
+    public static string? ReadEmbeddedVersion(string exePath)
+    {
+        var check = CheckEmbeddedVersion(exePath);
+        if (check.Kind != VersionCheckKind.Ok)
+            ProgramDbg($"[VERIFY VERSION] could not read version resource: {check.Detail}");
+        return check.Version;
+    }
+
+    /// <summary>
+    /// Single download attempt. Throws on HTTP errors, tiny files (likely
+    /// error pages), and truncated transfers (fewer bytes than Content-Length
+    /// declares). The caller retries via the attempt loop above.
+    /// </summary>
+    private async Task<(long received, long? declared)> DownloadOnceAsync(
+        string downloadUrl,
+        string newExe,
+        string latestVersion,
+        Action<string>? status,
+        CancellationToken ct)
+    {
+        // Clean previous attempt
+        if (File.Exists(newExe)) File.Delete(newExe);
+
+        using var dlReq = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        dlReq.Headers.Add("User-Agent", "GamepointAgent-Updater");
+        if (!string.IsNullOrWhiteSpace(_githubToken) &&
+            (downloadUrl.Contains("api.github.com") || downloadUrl.Contains("github.com")))
+        {
+            dlReq.Headers.Add("Authorization", $"Bearer {_githubToken}");
+        }
+        // For GitHub release asset browser_download_url from private repo, the URL redirects
+        // and already contains an auth token query — no header needed. But adding it is harmless.
+
+        using var dlClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        // Copy agent key header if present on main http
+        if (_http.DefaultRequestHeaders.Contains("x-agent-key"))
+        {
+            var vals = _http.DefaultRequestHeaders.GetValues("x-agent-key");
+            dlReq.Headers.Add("x-agent-key", vals);
+        }
+
+        using var resp = await dlClient.SendAsync(dlReq, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new Exception($"Download HTTP {(int)resp.StatusCode}: {body.Substring(0, Math.Min(300, body.Length))}");
+        }
+
+        var total = resp.Content.Headers.ContentLength;
+        await using var netStream = await resp.Content.ReadAsStreamAsync(ct);
+        await using var fileStream = new FileStream(newExe, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+        var buf = new byte[81920];
+        long readTotal = 0;
+        int n;
+        var lastPct = -1;
+        while ((n = await netStream.ReadAsync(buf, 0, buf.Length, ct)) > 0)
+        {
+            await fileStream.WriteAsync(buf, 0, n, ct);
+            readTotal += n;
+            if (total.HasValue && total.Value > 0)
+            {
+                var pct = (int)(readTotal * 100 / total.Value);
+                if (pct != lastPct && pct % 10 == 0)
+                {
+                    lastPct = pct;
+                    status?.Invoke($"Downloading v{latestVersion}... {pct}%");
+                }
+            }
+        }
+
+        var fi = new FileInfo(newExe);
+        if (!fi.Exists || fi.Length < 1_000_000)
+            throw new Exception($"Downloaded file too small ({(fi.Exists ? fi.Length : 0)} bytes) — likely HTML error page.");
+        if (total.HasValue && total.Value > 0 && fi.Length != total.Value)
+            throw new Exception($"Incomplete download: received {fi.Length} of {total.Value} bytes — network may have dropped. Will retry.");
+        return (fi.Length, total);
     }
 
     public static string NormalizeVersion(string v)
