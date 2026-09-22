@@ -33,6 +33,9 @@ if (-not $Version) { $Version = "1.0.0" }
 
 Write-Host "Building GamepointAgent v$Version -> $Output"
 
+# NOTE: InformationalVersion must be passed explicitly — the agent reads it
+# at runtime (Updater.CurrentVersion) and a hardcoded csproj value would win
+# over -p:Version, leaving the agent permanently reporting a stale version.
 dotnet publish $csprojPath `
   -c Release `
   -r win-x64 `
@@ -41,6 +44,7 @@ dotnet publish $csprojPath `
   -p:Version=$Version `
   -p:AssemblyVersion=$Version `
   -p:FileVersion=$Version `
+  -p:InformationalVersion=$Version `
   -o $Output
 
 if (-not (Test-Path "$Output\config.json")) {

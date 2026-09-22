@@ -36,6 +36,9 @@ jobs:
             $version = "${{ github.ref_name }}".Replace("agent-v","")
           }
           Write-Host "Building version $version"
+          # NOTE: InformationalVersion must be passed explicitly — the agent reads it
+          # at runtime (Updater.CurrentVersion) and a hardcoded csproj value would win
+          # over -p:Version, leaving the agent permanently reporting a stale version.
           dotnet publish ./agent/GamepointAgent/GamepointAgent.csproj `
             -c Release `
             -r win-x64 `
@@ -44,6 +47,7 @@ jobs:
             -p:Version=$version `
             -p:AssemblyVersion=$version `
             -p:FileVersion=$version `
+            -p:InformationalVersion=$version `
             -o ./agent/dist
           if (-not (Test-Path "./agent/dist/config.json")) {
             Copy-Item "./agent/config.sample.json" "./agent/dist/config.json"

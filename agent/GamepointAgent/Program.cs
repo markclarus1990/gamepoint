@@ -441,6 +441,13 @@ internal static class Program
 
             Load += async (_, _) =>
             {
+                try
+                {
+                    var self = Environment.ProcessPath ?? AppContext.BaseDirectory;
+                    var embedded = Updater.ReadEmbeddedVersion(self) ?? "none";
+                    Dbg($"[START NEW AGENT] pid={Environment.ProcessId} path={self} runtime={Updater.CurrentVersion} embedded={embedded}");
+                }
+                catch { }
                 await DownloadSoundsAsync();
                 await PollAsync();
                 _pollTimer.Start();
@@ -669,7 +676,17 @@ internal static class Program
                     });
                 if (ok)
                 {
-                    Dbg("Update launched — exiting");
+                    // [STOP OLD AGENT] The lock screen vetoes closing (AllowClose=false),
+                    // which would abort Application.Exit and leave the old exe running
+                    // forever — especially on locked PCs. Release it before exiting so
+                    // the swap script can replace the exe and start the new version.
+                    try
+                    {
+                        if (_lockForm is not null && !_lockForm.IsDisposed)
+                            _lockForm.AllowClose = true;
+                    }
+                    catch { }
+                    Dbg($"[STOP OLD AGENT] update v{info.Version} staged — exiting pid={Environment.ProcessId} current={Updater.CurrentVersion}");
                     // Exit will let the batch file swap and restart
                     Application.Exit();
                 }

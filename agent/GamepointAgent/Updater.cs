@@ -191,8 +191,9 @@ internal sealed class Updater
         Action<string>? status = null,
         CancellationToken ct = default)
     {
+        var pid = Environment.ProcessId;
         status?.Invoke($"Downloading v{latestVersion}...");
-        ProgramDbg($"Updater download start: {downloadUrl}");
+        ProgramDbg($"[DOWNLOAD] start url={downloadUrl} expected={latestVersion} current={CurrentVersion} pid={pid}");
 
         var exePath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
@@ -264,13 +265,25 @@ internal sealed class Updater
             var fi = new FileInfo(newExe);
             if (!fi.Exists || fi.Length < 1_000_000)
                 throw new Exception($"Downloaded file too small ({fi.Length} bytes) — likely HTML error page.");
-            ProgramDbg($"Updater downloaded {fi.Length} bytes to {newExe}");
+            ProgramDbg($"[DOWNLOAD] complete bytes={fi.Length} path={newExe}");
+
+            // VERIFY VERSION — read the embedded version of the downloaded exe
+            // before it ever replaces the running one. A mismatch means the
+            // release asset is stale/mislabeled; swapping it would leave the
+            // agent reporting the wrong version forever.
+            status?.Invoke($"Verifying v{latestVersion}...");
+            var detected = ReadEmbeddedVersion(newExe);
+            ProgramDbg($"[VERIFY VERSION] expected={NormalizeVersion(latestVersion)} detected={detected ?? "none"} path={newExe}");
+            if (string.IsNullOrWhiteSpace(detected))
+                throw new Exception("Downloaded exe has no embedded version info — refusing to install.");
+            if (!VersionsMatch(detected, latestVersion))
+                throw new Exception($"Version mismatch: expected v{NormalizeVersion(latestVersion)} but downloaded exe reports v{detected}. Not installing.");
+            ProgramDbg($"[VERIFY VERSION] OK v{detected}");
 
             status?.Invoke("Preparing update...");
 
             // Write batch script that waits for this PID to exit, then swaps files and restarts.
             // Uses PowerShell-style robust wait to avoid tasklist locale issues.
-            var pid = Environment.ProcessId;
             var bat = $"""
                 @echo off
                 setlocal EnableDelayedExpansion
@@ -304,7 +317,7 @@ internal sealed class Updater
                 (goto) 2>nul ^& del "%~f0" 2>nul
                 """;
             await File.WriteAllTextAsync(batPath, bat, ct);
-            ProgramDbg($"Updater bat written to {batPath}");
+            ProgramDbg($"[REPLACE EXE] swap script staged path={batPath} target={exePath} waitingPid={pid}");
 
             status?.Invoke($"Launching v{latestVersion}...");
 
@@ -320,7 +333,8 @@ internal sealed class Updater
             // Small delay so the bat has time to start before we exit
             await Task.Delay(500, ct);
 
-            ProgramDbg("Updater exit requested — bat should handle swap+restart");
+            ProgramDbg($"[STOP OLD AGENT] exiting pid={pid} current={CurrentVersion} — swap script takes over");
+            ProgramDbg($"[START NEW AGENT] pending target={exePath} expected={NormalizeVersion(latestVersion)} — verify footer shows v{latestVersion} after restart");
             return true;
         }
         catch (OperationCanceledException)
@@ -343,6 +357,42 @@ internal sealed class Updater
             return false;
         }
     }
+
+    /// <summary>
+    /// Reads the embedded version of an exe from its version resource
+    /// (ProductVersion first, then FileVersion). Returns normalized "x.y.z"
+    /// or null when the file has no usable version info.
+    /// </summary>
+    public static string? ReadEmbeddedVersion(string exePath)
+    {
+        try
+        {
+            var info = FileVersionInfo.GetVersionInfo(exePath);
+            var raw = !string.IsNullOrWhiteSpace(info.ProductVersion)
+                ? info.ProductVersion
+                : info.FileVersion;
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            return NormalizeVersion(raw);
+        }
+        catch (Exception ex)
+        {
+            ProgramDbg($"[VERIFY VERSION] could not read version resource: {ex.Message}");
+            return null;
+        }
+    }
+
+    public static string NormalizeVersion(string v)
+    {
+        var s = v.Trim().TrimStart('v');
+        if (s.StartsWith("agent-v", StringComparison.OrdinalIgnoreCase))
+            s = s.Substring("agent-v".Length);
+        var plus = s.IndexOf('+');
+        if (plus >= 0) s = s.Substring(0, plus);
+        return s.Trim();
+    }
+
+    public static bool VersionsMatch(string a, string b) =>
+        string.Equals(NormalizeVersion(a), NormalizeVersion(b), StringComparison.OrdinalIgnoreCase);
 
     private static void ProgramDbg(string msg)
     {
