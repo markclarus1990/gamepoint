@@ -712,6 +712,9 @@ export class SessionService {
       screenshot_url: string | null;
       screenshot_at: string | null;
       user_avatar: string | null;
+      current_window_title: string | null;
+      current_process: string | null;
+      activity_at: string | null;
     }[]
   > {
     await this.sessionRepo.expireOverdue();
@@ -758,6 +761,9 @@ export class SessionService {
         screenshot_url: s.screenshot_url ?? null,
         screenshot_at: s.screenshot_at ?? null,
         user_avatar: active ? avatarByUser.get(active.user_name) ?? null : null,
+        current_window_title: s.current_window_title ?? null,
+        current_process: s.current_process ?? null,
+        activity_at: s.activity_at ?? null,
       };
     });
   }

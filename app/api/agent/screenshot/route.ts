@@ -17,10 +17,18 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid agent key" }, { status: 401 });
   }
 
-  const { image } = await req.json();
+  const { image, window_title, process_name } = await req.json();
   if (typeof image !== "string" || !image) {
     return Response.json({ error: "Missing image" }, { status: 400 });
   }
+  const cleanTitle =
+    typeof window_title === "string" && window_title.trim()
+      ? window_title.trim().slice(0, 200)
+      : null;
+  const cleanProcess =
+    typeof process_name === "string" && process_name.trim()
+      ? process_name.trim().slice(0, 120)
+      : null;
 
   let bytes: Buffer;
   try {
@@ -42,6 +50,9 @@ export async function POST(req: Request) {
 
   const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/station-shots/${path}`;
   await stationRepo.saveScreenshot(station.id, url);
+  if (cleanTitle || cleanProcess) {
+    await stationRepo.saveActivity(station.id, cleanTitle, cleanProcess);
+  }
 
   void activityLog.logAgentScreenshot(station.name, bytes.length, url);
 

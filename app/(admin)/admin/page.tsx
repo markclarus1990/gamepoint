@@ -82,6 +82,9 @@ type Station = {
   screenshot_url?: string | null;
   screenshot_at?: string | null;
   user_avatar?: string | null;
+  current_window_title?: string | null;
+  current_process?: string | null;
+  activity_at?: string | null;
 };
 
 type Tab = "stations" | "requests" | "shop" | "users" | "history" | "activity";
@@ -1089,6 +1092,18 @@ export default function Admin() {
                               <span className="text-zinc-500">Offline</span>
                             )}
                           </div>
+                          {s.current_process || s.current_window_title ? (
+                            <div
+                              className="text-[11px] text-sky-300/90 truncate max-w-[220px]"
+                              title={`${s.current_window_title || ""}${s.current_process ? ` (${s.current_process})` : ""}`}
+                            >
+                              🎮 {s.current_window_title || s.current_process}
+                              {s.current_process && s.current_window_title
+                                ? ` (${s.current_process})`
+                                : ""}
+                              {s.activity_at ? ` • ${timeAgo(s.activity_at)}` : ""}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                       <button
@@ -2395,8 +2410,12 @@ function ScreenshotModal({
   const live = localStations.find((s) => s.id === station.id) ?? station;
   const imgUrl = live.screenshot_url;
   const shotAt = live.screenshot_at;
-  const age = shotAt ? Math.floor((Date.now() - new Date(shotAt).getTime()) / 1000) : null;
+  const nowMs = Date.now();
+  const age = shotAt ? Math.floor((nowMs - new Date(shotAt).getTime()) / 1000) : null;
   const fresh = age !== null && age <= 30;
+  const activityAge = live.activity_at
+    ? Math.floor((nowMs - new Date(live.activity_at).getTime()) / 1000)
+    : null;
 
   useEffect(() => {
     let alive = true;
@@ -2445,13 +2464,44 @@ function ScreenshotModal({
       }
     };
 
+    const requestActivity = async () => {
+      if (!alive) return;
+      try {
+        await fetch("/api/stations/command", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [station.id], command: "activity" }),
+        });
+      } catch {
+        /* keep polling */
+      }
+    };
+
+    const refreshStations = async () => {
+      if (!alive) return;
+      try {
+        const res = await fetch("/api/stations");
+        const data = await res.json();
+        if (alive) setLocalStations(data.stations || []);
+      } catch {
+        /* keep polling */
+      }
+    };
+
     requestShot();
+    requestActivity();
+    refreshStations();
     const iv = setInterval(requestShot, 8000);
+    // Lightweight on-demand activity + station refresh — only while admin is viewing.
+    const activityIv = setInterval(requestActivity, 5000);
+    const stationsIv = setInterval(refreshStations, 5000);
     const timeout = setTimeout(() => setRequesting(false), 4000);
 
     return () => {
       alive = false;
       clearInterval(iv);
+      clearInterval(activityIv);
+      clearInterval(stationsIv);
       clearTimeout(timeout);
     };
   }, [controlling, station.id]);
@@ -2594,6 +2644,22 @@ function ScreenshotModal({
                       ? "Online"
                       : "Offline"}
                 </div>
+                {live.current_process || live.current_window_title ? (
+                  <div
+                    className="text-[11px] text-sky-300/90 truncate max-w-[320px]"
+                    title={`${live.current_window_title || ""}${live.current_process ? ` (${live.current_process})` : ""}`}
+                  >
+                    🎮 {live.current_window_title || live.current_process}
+                    {live.current_process && live.current_window_title
+                      ? ` (${live.current_process})`
+                      : ""}
+                    {live.activity_at ? ` • ${formatAge(activityAge)}` : ""}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-zinc-600">
+                    {live.online ? "Waiting for activity…" : ""}
+                  </div>
+                )}
               </div>
             {fresh && (
               <span className="hidden sm:flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full">

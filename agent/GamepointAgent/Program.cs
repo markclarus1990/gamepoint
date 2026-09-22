@@ -154,34 +154,53 @@ internal static class Program
         Apply();
     }
 
-    private static Panel ModernInput(bool password, out TextBox box, int width = 340)
+    private static Panel ModernInput(bool password, out TextBox box, int width = 302)
     {
         var panel = new Panel
         {
-            BackColor = C(COLOR_INPUT),
-            Size = new Size(width, 46)
+            BackColor = Color.Transparent,
+            Size = new Size(width, 44)
         };
-        panel.Region = RoundedRegion(panel, 12);
         var tb = new TextBox
         {
             BorderStyle = BorderStyle.None,
             BackColor = C(COLOR_INPUT),
             ForeColor = Color.White,
-            Font = F(12),
+            Font = F(11.5f),
             PasswordChar = password ? '•' : '\0',
-            Location = new Point(14, 13),
+            Location = new Point(14, 12),
             Size = new Size(width - 28, 20)
+        };
+        bool focused = false;
+        panel.Paint += (_, e) =>
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var path = new GraphicsPath();
+            int r = 10;
+            var rect = new Rectangle(0, 0, panel.Width - 1, panel.Height - 1);
+            path.AddArc(rect.X, rect.Y, r * 2, r * 2, 180, 90);
+            path.AddArc(rect.Right - r * 2, rect.Y, r * 2, r * 2, 270, 90);
+            path.AddArc(rect.Right - r * 2, rect.Bottom - r * 2, r * 2, r * 2, 0, 90);
+            path.AddArc(rect.X, rect.Bottom - r * 2, r * 2, r * 2, 90, 90);
+            path.CloseFigure();
+            using var fill = new SolidBrush(focused ? C("#223049") : C(COLOR_INPUT));
+            e.Graphics.FillPath(fill, path);
+            using var pen = new Pen(focused ? C(COLOR_PINK) : Color.FromArgb(50, 255, 255, 255), focused ? 1.5f : 1f);
+            e.Graphics.DrawPath(pen, path);
         };
         tb.GotFocus += (_, _) =>
         {
-            panel.BackColor = C("#334155");
-            tb.BackColor = C("#334155");
+            focused = true;
+            tb.BackColor = C("#223049");
+            panel.Invalidate();
         };
         tb.LostFocus += (_, _) =>
         {
-            panel.BackColor = C(COLOR_INPUT);
+            focused = false;
             tb.BackColor = C(COLOR_INPUT);
+            panel.Invalidate();
         };
+        panel.Region = RoundedRegion(panel, 10);
         panel.Controls.Add(tb);
         box = tb;
         return panel;
@@ -457,6 +476,11 @@ internal static class Program
                         if (st.PendingCommand == "screenshot")
                         {
                             await CaptureAndUploadScreenshotAsync();
+                            await AckCommandAsync();
+                        }
+                        else if (st.PendingCommand == "activity")
+                        {
+                            await ReportActivityAsync();
                             await AckCommandAsync();
                         }
                         else if (st.PendingCommand == "update")
@@ -736,17 +760,84 @@ internal static class Program
                 enc.Param[0] = new EncoderParameter(Encoder.Quality, 55L);
                 scaled.Save(ms, jpeg, enc);
 
+                var activity = GetForegroundActivity();
                 using var req = new HttpRequestMessage(HttpMethod.Post, "api/agent/screenshot")
                 {
-                    Content = JsonContent.Create(new { image = Convert.ToBase64String(ms.ToArray()) })
+                    Content = JsonContent.Create(new
+                    {
+                        image = Convert.ToBase64String(ms.ToArray()),
+                        window_title = activity?.Title,
+                        process_name = activity?.Process,
+                    })
                 };
                 req.Headers.Add("x-agent-key", _cfg.AgentKey);
                 using var resp = await _http.SendAsync(req);
-                Dbg($"Screenshot uploaded: {(int)resp.StatusCode}");
+                Dbg($"Screenshot uploaded: {(int)resp.StatusCode} activity={activity?.Process ?? "none"}");
             }
             catch (Exception ex)
             {
                 Dbg($"Screenshot failed: {ex.Message}");
+            }
+        }
+
+        private sealed record ActivityInfo(string Title, string Process);
+
+        private async Task ReportActivityAsync()
+        {
+            try
+            {
+                // Only report when a session is active — avoids spying on the lock screen.
+                if (_current?.Locked != false) return;
+                var activity = GetForegroundActivity();
+                if (activity is null) return;
+                using var req = new HttpRequestMessage(HttpMethod.Post, "api/agent/activity")
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        window_title = activity.Title,
+                        process_name = activity.Process,
+                    })
+                };
+                req.Headers.Add("x-agent-key", _cfg.AgentKey);
+                using var resp = await _http.SendAsync(req);
+                Dbg($"Activity reported: {activity.Process} {(int)resp.StatusCode}");
+            }
+            catch (Exception ex)
+            {
+                Dbg($"Activity report failed: {ex.Message}");
+            }
+        }
+
+        private static ActivityInfo? GetForegroundActivity()
+        {
+            try
+            {
+                var hWnd = GetForegroundWindow();
+                if (hWnd == IntPtr.Zero) return null;
+                var sb = new StringBuilder(512);
+                GetWindowText(hWnd, sb, sb.Capacity);
+                var title = sb.ToString().Trim();
+                if (title.Length > 200) title = title.Substring(0, 200);
+                GetWindowThreadProcessId(hWnd, out var pid);
+                string process;
+                try
+                {
+                    using var proc = Process.GetProcessById((int)pid);
+                    process = (proc.ProcessName ?? "unknown").Trim();
+                    if (!process.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        process += ".exe";
+                    if (process.Length > 120) process = process.Substring(0, 120);
+                }
+                catch
+                {
+                    process = "unknown";
+                }
+                if (string.IsNullOrWhiteSpace(title) && process == "unknown") return null;
+                return new ActivityInfo(title, process);
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -842,6 +933,9 @@ internal static class Program
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -1415,8 +1509,17 @@ try
         public Panel PaymentPanel => _paymentPanel;
         private readonly TextBox _txtName;
         private readonly TextBox _txtPin;
+        private readonly Panel _inputName;
+        private readonly Panel _inputPin;
+        private readonly Label _lblHeaderPlayer;
+        private readonly Label _lblHeaderPin;
         private readonly Label _lblError;
+        private readonly Panel _pnlStatus;
+        private readonly Label _lblStatusHeader;
         private readonly Label _lblStatus;
+        private readonly Label _btnAdminNote;
+        private readonly Button _btnLogin;
+
         private readonly Label _lblUser;
         private readonly PictureBox _avatar;
         private readonly Label _lblBalances;
@@ -1463,79 +1566,96 @@ try
             }
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
-            var titleGame = DarkLabel("GAME", 40, Color.White, true);
-            var titlePoint = DarkLabel("POINT", 40, C(COLOR_PINK), true);
-            var stationLine = DarkLabel($"{controller.StationName} — PC LOCKED", 14, C(COLOR_PINK), true);
-            var hint = DarkLabel("Log in to start your session, or ask the cashier to open time", 10, Color.FromArgb(170, 170, 185));
+            var titleGame = DarkLabel("GAME", 42, Color.White, true);
+            var titlePoint = DarkLabel("POINT", 42, C(COLOR_PINK), true);
+            var stationLine = DarkLabel($"{controller.StationName}  •  PC LOCKED", 11.5f, C("#ec4899"), true);
+            var hint = DarkLabel("Log in to start your session, or ask the cashier to open time", 10.5f, Color.FromArgb(203, 213, 225));
 
             _card = new Panel
             {
                 BackColor = Color.Transparent,
-                Size = new Size(320, 380),
+                Size = new Size(350, 400),
                 Anchor = AnchorStyles.None
             };
-            _card.Region = RoundedRegion(_card, 14);
+            _card.Region = RoundedRegion(_card, 16);
             _card.Paint += (s, e) =>
             {
-                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                using var path = new System.Drawing.Drawing2D.GraphicsPath();
-                int r = 14;
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using var path = new GraphicsPath();
+                int r = 16;
                 var rect = new Rectangle(0, 0, _card.Width - 1, _card.Height - 1);
                 path.AddArc(rect.X, rect.Y, r * 2, r * 2, 180, 90);
                 path.AddArc(rect.Right - r * 2, rect.Y, r * 2, r * 2, 270, 90);
                 path.AddArc(rect.Right - r * 2, rect.Bottom - r * 2, r * 2, r * 2, 0, 90);
                 path.AddArc(rect.X, rect.Bottom - r * 2, r * 2, r * 2, 90, 90);
                 path.CloseFigure();
-                using var brush = new SolidBrush(Color.FromArgb(135, 15, 27, 46));
+                using var brush = new SolidBrush(Color.FromArgb(215, 15, 23, 42));
                 e.Graphics.FillPath(brush, path);
-                using var pen = new Pen(Color.FromArgb(40, 255, 255, 255), 1);
+                using var pen = new Pen(Color.FromArgb(45, 255, 255, 255), 1);
                 e.Graphics.DrawPath(pen, path);
             };
 
-            // ---- LOGIN PANEL ---- (compact, transparent)
-            _loginPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 340) };
-            var inputName = ModernInput(false, out _txtName, 280);
-            var inputPin = ModernInput(true, out _txtPin, 280);
-            var lblName = DarkLabel("Player Name", 10, Color.FromArgb(160, 160, 175));
-            var lblPin = DarkLabel("PIN", 10, Color.FromArgb(160, 160, 175));
-            var btnLogin = DarkButton("Login", COLOR_ACCENT);
-            MakeGradientButton(btnLogin);
-            _lblError = DarkLabel("", 10, C(COLOR_ERROR));
-            _lblError.MaximumSize = new Size(260, 60);
-            var btnAdminNote = DarkLabel("No account? Ask the cashier to create one", 9, Color.FromArgb(110, 110, 125));
-            _lblStatus = DarkLabel("", 13, Color.White, true);
-            _lblStatus.MaximumSize = new Size(260, 90);
-            _lblStatus.Visible = false;
+            // ---- LOGIN PANEL ---- (302px width inside 350px card with 24px margins)
+            _loginPanel = new Panel { BackColor = Color.Transparent, Size = new Size(302, 350) };
 
-            btnLogin.Click += async (_, _) => await DoLoginAsync();
+            _pnlStatus = new Panel
+            {
+                BackColor = Color.Transparent,
+                Size = new Size(302, 58),
+                Visible = false
+            };
+            _pnlStatus.Paint += (s, e) =>
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using var path = new GraphicsPath();
+                int r = 10;
+                var rect = new Rectangle(0, 0, _pnlStatus.Width - 1, _pnlStatus.Height - 1);
+                path.AddArc(rect.X, rect.Y, r * 2, r * 2, 180, 90);
+                path.AddArc(rect.Right - r * 2, rect.Y, r * 2, r * 2, 270, 90);
+                path.AddArc(rect.Right - r * 2, rect.Bottom - r * 2, r * 2, r * 2, 0, 90);
+                path.AddArc(rect.X, rect.Bottom - r * 2, r * 2, r * 2, 90, 90);
+                path.CloseFigure();
+                using var brush = new SolidBrush(Color.FromArgb(220, 6, 78, 59));
+                e.Graphics.FillPath(brush, path);
+                using var pen = new Pen(Color.FromArgb(16, 185, 129), 1.2f);
+                e.Graphics.DrawPath(pen, path);
+            };
+            _lblStatusHeader = DarkLabel("✓  SESSION SAVED", 8.5f, Color.FromArgb(52, 211, 153), true);
+            _lblStatus = DarkLabel("", 9f, Color.FromArgb(236, 253, 245), false);
+            _lblStatus.MaximumSize = new Size(280, 0);
+            _lblStatusHeader.Location = new Point(12, 8);
+            _lblStatus.Location = new Point(12, 26);
+            _pnlStatus.Controls.AddRange(new Control[] { _lblStatusHeader, _lblStatus });
 
+            _lblHeaderPlayer = DarkLabel("PLAYER NAME", 8.5f, Color.FromArgb(148, 163, 184), true);
+            _inputName = ModernInput(false, out _txtName, 302);
+            _lblHeaderPin = DarkLabel("PIN", 8.5f, Color.FromArgb(148, 163, 184), true);
+            _inputPin = ModernInput(true, out _txtPin, 302);
+
+            _btnLogin = DarkButton("Login", COLOR_ACCENT);
+            MakeGradientButton(_btnLogin);
+            _btnLogin.Cursor = Cursors.Hand;
+            _btnLogin.Font = F(11.5f, FontStyle.Bold);
+
+            _lblError = DarkLabel("", 9.5f, C(COLOR_ERROR));
+            _lblError.MaximumSize = new Size(302, 50);
+
+            _btnAdminNote = DarkLabel("No account? Ask the cashier to create one", 9f, Color.FromArgb(148, 163, 184));
+            _btnAdminNote.AutoSize = true;
+
+            _btnLogin.Click += async (_, _) => await DoLoginAsync();
             _txtName.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; _ = DoLoginAsync(); } };
             _txtPin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; _ = DoLoginAsync(); } };
+            _txtName.TextChanged += (_, _) => { if (_pnlStatus.Visible) { _pnlStatus.Visible = false; LayoutLoginPanel(); } };
+            _txtPin.TextChanged += (_, _) => { if (_pnlStatus.Visible) { _pnlStatus.Visible = false; LayoutLoginPanel(); } };
 
-            var loginY = 8;
-            lblName.Location = new Point(0, loginY);
-            loginY += 18;
-            inputName.Location = new Point(0, loginY);
-            loginY += 52;
-            lblPin.Location = new Point(0, loginY);
-            loginY += 18;
-            inputPin.Location = new Point(0, loginY);
-            loginY += 52;
-            btnLogin.Location = new Point(0, loginY);
-            btnLogin.Size = new Size(280, 44);
-            loginY += 52;
-            _lblError.Location = new Point(0, loginY);
-            loginY += 24;
-            _lblStatus.Location = new Point(0, loginY);
-            loginY += 24;
-            btnAdminNote.Location = new Point(0, loginY + 16);
+            _loginPanel.Controls.AddRange(new Control[] { _pnlStatus, _lblHeaderPlayer, _inputName, _lblHeaderPin, _inputPin, _btnLogin, _lblError, _btnAdminNote });
+            LayoutLoginPanel();
 
-            _loginPanel.Controls.AddRange(new Control[] { lblName, inputName, lblPin, inputPin, btnLogin, _lblError, _lblStatus, btnAdminNote });
-
-            // ---- PAYMENT PANEL ---- (compact, transparent)
-            _paymentPanel = new Panel { BackColor = Color.Transparent, Size = new Size(280, 520), AutoScroll = true };
+            // ---- PAYMENT PANEL ---- (302px width, transparent)
+            _paymentPanel = new Panel { BackColor = Color.Transparent, Size = new Size(302, 520), AutoScroll = true };
             _lblUser = DarkLabel("", 13, Color.White, true);
-            _lblUser.MaximumSize = new Size(220, 0);
+            _lblUser.MaximumSize = new Size(240, 0);
             _avatar = new PictureBox
             {
                 Size = new Size(44, 44),
@@ -1543,38 +1663,38 @@ try
                 BackColor = Color.Transparent,
                 Visible = false
             };
-            _lblBalances = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
-            _lblBalances.MaximumSize = new Size(280, 0);
-            _lblResume = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
-            _lblResume.MaximumSize = new Size(280, 0);
+            _lblBalances = DarkLabel("", 10.5f, Color.FromArgb(160, 160, 175));
+            _lblBalances.MaximumSize = new Size(302, 0);
+            _lblResume = DarkLabel("", 10.5f, Color.FromArgb(160, 160, 175));
+            _lblResume.MaximumSize = new Size(302, 0);
             _lblResume.Visible = false;
             _btnResume = DarkButton("Resume Session", COLOR_GREEN);
             MakeGradientButton(_btnResume);
             _btnResume.Visible = false;
             _btnResume.Click += async (_, _) => await DoResumeAsync();
-            _lblCredit = DarkLabel("", 11, Color.FromArgb(160, 160, 175));
-            _lblCredit.MaximumSize = new Size(280, 0);
+            _lblCredit = DarkLabel("", 10.5f, Color.FromArgb(160, 160, 175));
+            _lblCredit.MaximumSize = new Size(302, 0);
             _lblCredit.Visible = false;
             _btnCredit = DarkButton("Continue with Shared Time", COLOR_GREEN);
             MakeGradientButton(_btnCredit, Color.FromArgb(13, 148, 136), Color.FromArgb(5, 150, 105));
             _btnCredit.Visible = false;
             _btnCredit.Click += async (_, _) => await DoContinueCreditAsync();
-            _lblPayWith = DarkLabel("Pay with:", 10, Color.FromArgb(160, 160, 175));
+            _lblPayWith = DarkLabel("Pay with:", 9.5f, Color.FromArgb(160, 160, 175), true);
             _btnPoints = DarkButton("Gamepoints", COLOR_ACCENT);
             _btnGfunds = DarkButton("Gfunds", COLOR_INPUT);
             RoundButton(_btnPoints, 10);
             RoundButton(_btnGfunds, 10);
             _btnPoints.Click += (_, _) => SetPayment("points");
             _btnGfunds.Click += (_, _) => SetPayment("gfunds");
-            _lblAmount = DarkLabel("Amount:", 10, Color.FromArgb(160, 160, 175));
+            _lblAmount = DarkLabel("Amount:", 9.5f, Color.FromArgb(160, 160, 175), true);
             _amountPanel = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = true,
-                Size = new Size(280, 86),
+                Size = new Size(302, 86),
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                MaximumSize = new Size(280, 120),
+                MaximumSize = new Size(302, 120),
                 BackColor = Color.Transparent
             };
             _lblTime = DarkLabel("", 12, C(COLOR_GREEN), true);
@@ -1582,22 +1702,22 @@ try
             MakeGradientButton(_btnStart);
             _btnStart.Click += async (_, _) => await DoStartAsync();
             _lblStartError = DarkLabel("", 10, C(COLOR_ERROR));
-            _lblStartError.MaximumSize = new Size(260, 60);
+            _lblStartError.MaximumSize = new Size(302, 60);
             _btnLogout = DarkButton("Back", "#334155");
             RoundButton(_btnLogout, 10);
             _btnLogout.Click += (_, _) => ShowLogin();
 
-            _btnResume.Size = new Size(280, 36);
-            _btnCredit.Size = new Size(280, 36);
-            _btnPoints.Size = new Size(136, 38);
-            _btnGfunds.Size = new Size(136, 38);
-            _btnStart.Size = new Size(280, 40);
-            _btnLogout.Size = new Size(280, 34);
+            _btnResume.Size = new Size(302, 38);
+            _btnCredit.Size = new Size(302, 38);
+            _btnPoints.Size = new Size(147, 38);
+            _btnGfunds.Size = new Size(147, 38);
+            _btnStart.Size = new Size(302, 42);
+            _btnLogout.Size = new Size(302, 34);
 
             _paymentPanel.Controls.AddRange(new Control[] { _avatar, _lblUser, _lblBalances, _lblResume, _btnResume, _lblCredit, _btnCredit, _lblPayWith, _btnPoints, _btnGfunds, _lblAmount, _amountPanel, _lblTime, _btnStart, _lblStartError, _btnLogout });
             LayoutPaymentPanel();
 
-            _lblUpdate = DarkLabel($"v{Updater.CurrentVersion}", 8, Color.FromArgb(120, 130, 150));
+            _lblUpdate = DarkLabel($"v{Updater.CurrentVersion}", 8.5f, Color.FromArgb(148, 163, 184), true);
             _lblUpdate.AutoSize = true;
             _lblUpdate.Cursor = Cursors.Hand;
             _lblUpdate.Click += async (_, _) => await _controller.CheckForUpdatesAsync(true);
@@ -1607,18 +1727,20 @@ try
             _btnUpdate.Font = F(8, FontStyle.Bold);
             _btnUpdate.Visible = false;
             _btnUpdate.Click += async (_, _) => await _controller.ApplyPendingUpdateAsync(this);
-            _btnCheckUpdate = DarkButton("Check for Update", "#334155");
+            _btnCheckUpdate = DarkButton("Check for Update", "#1e293b");
             RoundButton(_btnCheckUpdate, 8);
-            _btnCheckUpdate.Size = new Size(120, 26);
-            _btnCheckUpdate.Font = F(7);
+            _btnCheckUpdate.Size = new Size(120, 28);
+            _btnCheckUpdate.Font = F(7.5f, FontStyle.Bold);
+            _btnCheckUpdate.FlatAppearance.BorderSize = 1;
+            _btnCheckUpdate.FlatAppearance.BorderColor = C("#334155");
             _btnCheckUpdate.Click += async (_, _) => await _controller.CheckForUpdatesAsync(true);
 
             Controls.AddRange(new Control[] { titleGame, titlePoint, stationLine, hint, _card, _lblUpdate, _btnUpdate, _btnCheckUpdate });
             _card.Controls.Add(_loginPanel);
             _card.Controls.Add(_paymentPanel);
 
-            _loginPanel.Location = new Point(20, 18);
-            _paymentPanel.Location = new Point(20, 18);
+            _loginPanel.Location = new Point(24, 24);
+            _paymentPanel.Location = new Point(24, 24);
             _paymentPanel.Visible = false;
 
             Resize += (_, _) => CenterCard(titleGame, titlePoint, stationLine, hint);
@@ -1639,9 +1761,9 @@ try
                     _btnUpdate.Visible = hasUpdate;
                     if (hasUpdate && !string.IsNullOrEmpty(version))
                         _btnUpdate.Text = $"Update to v{version}";
-                    // Keep check button visible but subtle
                     _btnCheckUpdate.Visible = true;
-                    CenterCard(Controls[0], Controls[1], Controls[2], Controls[3]);
+                    if (Controls.Count >= 4)
+                        CenterCard(Controls[0], Controls[1], Controls[2], Controls[3]);
                 });
             }
             catch { }
@@ -1649,19 +1771,23 @@ try
 
         private void CenterCard(Control titleGame, Control titlePoint, Control stationLine, Control hint)
         {
-            const int LEFT_MARGIN = 72;
+            const int LEFT_MARGIN = 80;
             int cardX = LEFT_MARGIN;
-            int cardY = Math.Max(12, Height / 2 - _card.Height / 2);
-            int titleY = Math.Max(20, cardY - 110);
-            var titleWidth = titleGame.Width + 4 + titlePoint.Width;
-            // Keep titles left-aligned with card
-            titleGame.Location = new Point(cardX, titleY);
-            titlePoint.Location = new Point(titleGame.Right + 4, titleY);
+
+            int headerHeight = titleGame.Height + 10 + stationLine.Height + 6 + hint.Height;
+            int totalBlockHeight = headerHeight + 22 + _card.Height;
+            int blockStartY = Math.Max(28, (Height - totalBlockHeight) / 2);
+
+            titleGame.Location = new Point(cardX, blockStartY);
+            titlePoint.Location = new Point(titleGame.Right + 6, blockStartY);
             stationLine.Location = new Point(cardX, titleGame.Bottom + 10);
-            hint.Location = new Point(cardX, stationLine.Bottom + 8);
+            hint.Location = new Point(cardX, stationLine.Bottom + 6);
+
+            int cardY = hint.Bottom + 22;
             _card.Location = new Point(cardX, cardY);
             _card.Invalidate();
-            // Update banner at bottom-left, below card
+
+            // Update banner at bottom-left
             try
             {
                 var lblUpd = _lblUpdate;
@@ -1669,29 +1795,79 @@ try
                 var btnUpd = _btnUpdate;
                 if (lblUpd != null)
                 {
-                    lblUpd.Location = new Point(cardX, Height - 38);
+                    int footerY = Height - 44;
+                    lblUpd.Location = new Point(cardX, footerY + 5);
                     if (btnChk != null)
-                        btnChk.Location = new Point(lblUpd.Right + 10, Height - 40);
+                        btnChk.Location = new Point(lblUpd.Right + 12, footerY);
                     if (btnUpd != null && btnUpd.Visible && btnChk != null)
-                        btnUpd.Location = new Point(btnChk.Right + 8, Height - 42);
+                        btnUpd.Location = new Point(btnChk.Right + 8, footerY);
                 }
             }
             catch { }
         }
 
+        private void LayoutLoginPanel()
+        {
+            if (_loginPanel is null) return;
+            _loginPanel.SuspendLayout();
+            int y = 0;
+
+            if (_pnlStatus.Visible)
+            {
+                _pnlStatus.Location = new Point(0, y);
+                _pnlStatus.Size = new Size(302, 58);
+                y += 66;
+            }
+
+            _lblHeaderPlayer.Location = new Point(0, y);
+            y += 18;
+            _inputName.Location = new Point(0, y);
+            y += 50;
+
+            _lblHeaderPin.Location = new Point(0, y);
+            y += 18;
+            _inputPin.Location = new Point(0, y);
+            y += 52;
+
+            _btnLogin.Location = new Point(0, y);
+            _btnLogin.Size = new Size(302, 44);
+            y += 50;
+
+            if (!string.IsNullOrEmpty(_lblError.Text))
+            {
+                _lblError.Location = new Point(0, y);
+                _lblError.Visible = true;
+                y += Math.Max(20, _lblError.PreferredSize.Height) + 8;
+            }
+            else
+            {
+                _lblError.Visible = false;
+                y += 4;
+            }
+
+            _btnAdminNote.Location = new Point(0, y + 6);
+            y += _btnAdminNote.Height + 10;
+
+            _loginPanel.Size = new Size(302, y);
+            _card.Size = new Size(350, y + 48);
+            _card.Region = RoundedRegion(_card, 16);
+            _loginPanel.ResumeLayout(false);
+            _loginPanel.PerformLayout();
+
+            if (Controls.Count >= 4)
+                CenterCard(Controls[0], Controls[1], Controls[2], Controls[3]);
+        }
+
         private void LayoutPaymentPanel()
         {
-            // Dynamic layout — collapses gaps when resume/credit are hidden.
-            // Fixes: big space between Resume button and "Pay with" that pushed
-            // Start Session off the card, and bottom clipping inside 280×440 panel.
             if (_paymentPanel is null || _lblPayWith is null || _lblAmount is null || _btnLogout is null) return;
             _paymentPanel.SuspendLayout();
-            int y = 8;
+            int y = 0;
             _avatar.Location = new Point(0, y);
-            _lblUser.Location = new Point(56, y + 13);
-            y += 56;
+            _lblUser.Location = new Point(56, y + 12);
+            y += 52;
             _lblBalances.Location = new Point(0, y);
-            y += _lblBalances.Height + 8;
+            y += _lblBalances.Height + 10;
 
             if (_lblResume.Visible)
             {
@@ -1701,6 +1877,7 @@ try
             if (_btnResume.Visible)
             {
                 _btnResume.Location = new Point(0, y);
+                _btnResume.Size = new Size(302, 38);
                 y += 46;
             }
             if (_lblCredit.Visible)
@@ -1711,36 +1888,50 @@ try
             if (_btnCredit.Visible)
             {
                 _btnCredit.Location = new Point(0, y);
+                _btnCredit.Size = new Size(302, 38);
                 y += 46;
             }
 
-            // Small consistent gap (10px) from last visible block to "Pay with" — collapsed when resume/credit hidden
             _lblPayWith.Location = new Point(0, y);
             y += _lblPayWith.Height + 6;
             _btnPoints.Location = new Point(0, y);
-            _btnGfunds.Location = new Point(144, y);
-            y += 48;
+            _btnPoints.Size = new Size(147, 38);
+            _btnGfunds.Location = new Point(155, y);
+            _btnGfunds.Size = new Size(147, 38);
+            y += 46;
+
             _lblAmount.Location = new Point(0, y);
             y += _lblAmount.Height + 6;
             _amountPanel.Location = new Point(0, y);
-            // Flow panel is AutoSize — measure its preferred height
+            _amountPanel.MaximumSize = new Size(302, 120);
             int amountH = _amountPanel.PreferredSize.Height;
             if (amountH < 34) amountH = 34;
             if (amountH > 120) amountH = 120;
-            y += amountH + 4;
+            y += amountH + 6;
+
             _lblTime.Location = new Point(0, y);
             y += string.IsNullOrEmpty(_lblTime.Text) ? 8 : 26;
             _btnStart.Location = new Point(0, y);
-            y += 52;
+            _btnStart.Size = new Size(302, 42);
+            y += 50;
+
             _lblStartError.Location = new Point(0, y);
-            // Reserve space for error label if visible
             if (!string.IsNullOrEmpty(_lblStartError.Text))
                 y += Math.Max(16, _lblStartError.PreferredSize.Height) + 6;
             else
                 y += 4;
             _btnLogout.Location = new Point(0, y);
+            _btnLogout.Size = new Size(302, 34);
+            y += 42;
+
+            _paymentPanel.Size = new Size(302, y);
+            _card.Size = new Size(350, y + 48);
+            _card.Region = RoundedRegion(_card, 16);
             _paymentPanel.ResumeLayout(false);
             _paymentPanel.PerformLayout();
+
+            if (Controls.Count >= 4)
+                CenterCard(Controls[0], Controls[1], Controls[2], Controls[3]);
         }
 
         protected override void OnLoad(EventArgs e)
@@ -1770,8 +1961,6 @@ try
 
         private void ShowLogin()
         {
-            _card.Size = new Size(320, 380);
-            _card.Region = RoundedRegion(_card, 14);
             _loginPanel.Visible = true;
             _paymentPanel.Visible = false;
             _loginPanel.BringToFront();
@@ -1779,19 +1968,18 @@ try
             {
                 c.Visible = true;
             }
-            _lblStatus.Visible = false;
+            _pnlStatus.Visible = !string.IsNullOrEmpty(_lblStatus.Text);
             _lblError.Text = "";
             _lblStartError.Text = "";
             _txtName.Text = "";
             _txtPin.Text = "";
             _txtName.Focus();
+            LayoutLoginPanel();
             Dbg($"ShowLogin login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} cardVisible={_card.Visible} cardLoc={_card.Location} formVisible={Visible}");
         }
 
         public void ResetForNewLock()
         {
-            _card.Size = new Size(320, 380);
-            _card.Region = RoundedRegion(_card, 14);
             _user = null;
             _payment = "points";
             _selectedAmount = 0;
@@ -1803,7 +1991,7 @@ try
             _btnCredit.Visible = false;
             _lblStartError.Text = "";
             _lblStatus.Text = "";
-            _lblStatus.Visible = false;
+            _pnlStatus.Visible = false;
             _avatar.Visible = false;
             ShowLogin();
             Dbg($"ResetForNewLock done login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)}");
@@ -1813,15 +2001,17 @@ try
         {
             if (IsDisposed || !IsHandleCreated) return;
             _lblStatus.Text = text;
-            _lblStatus.Visible = true;
-            _lblStatus.BringToFront();
+            _pnlStatus.Visible = true;
+            _pnlStatus.BringToFront();
             _lblStartError.Text = "";
+            LayoutLoginPanel();
         }
 
         private void SetError(string msg)
         {
             _lblError.Text = msg;
             _lblStartError.Text = msg;
+            LayoutLoginPanel();
         }
 
         private void SetPayment(string payment)
@@ -1869,11 +2059,11 @@ try
                     Minimum = 1,
                     Maximum = 100000,
                     Value = 100,
-                    Width = 160,
+                    Width = 140,
                     Height = 34,
                     BackColor = C(COLOR_INPUT),
                     ForeColor = Color.White,
-                    Font = F(12),
+                    Font = F(11.5f),
                     BorderStyle = BorderStyle.FixedSingle
                 };
                 _numCustom.ValueChanged += (_, _) =>
@@ -1896,10 +2086,12 @@ try
             if (name == "" || pin == "")
             {
                 _lblError.Text = "Enter name and PIN";
+                LayoutLoginPanel();
                 return;
             }
 
             _lblError.Text = "Logging in...";
+            LayoutLoginPanel();
             try
             {
                 using var resp = await _controller.Http.PostAsJsonAsync("api/login", new { name, pin });
@@ -1907,6 +2099,7 @@ try
                 if (json.TryGetProperty("error", out var err))
                 {
                     _lblError.Text = err.GetString() ?? "Login failed";
+                    LayoutLoginPanel();
                     return;
                 }
 
@@ -1914,10 +2107,11 @@ try
                 if (_user is null)
                 {
                     _lblError.Text = "Invalid server response";
+                    LayoutLoginPanel();
                     return;
                 }
                 _controller.CurrentPlayer = _user;
-                _lblStatus.Visible = false;
+                _pnlStatus.Visible = false;
                 _lblUser.Text = $"Player: {_user.Name}";
                 var creditText = _user.TimeCreditMinutes > 0
                     ? $"  •  {FmtMinutes(_user.TimeCreditMinutes)} shared time"
@@ -1948,13 +2142,12 @@ try
             catch
             {
                 _lblError.Text = "Cannot reach the server";
+                LayoutLoginPanel();
             }
         }
 
         private void ShowPayment()
         {
-            _card.Size = new Size(320, 560);
-            _card.Region = RoundedRegion(_card, 14);
             _lblResume.Visible = _resumeSeconds > 0;
             _btnResume.Visible = _resumeSeconds > 0;
             _lblCredit.Visible = _creditMinutes > 0;

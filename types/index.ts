@@ -42,6 +42,9 @@ export interface Station {
   screenshot_at?: string | null;
   remote_control?: boolean | null;
   controlled_at?: string | null;
+  current_window_title?: string | null;
+  current_process?: string | null;
+  activity_at?: string | null;
 }
 
 export interface RedeemRequest {

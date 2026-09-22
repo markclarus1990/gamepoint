@@ -82,6 +82,22 @@ export class StationRepository {
     if (error) throw error;
   }
 
+  async saveActivity(
+    id: string,
+    windowTitle: string | null,
+    processName: string | null
+  ): Promise<void> {
+    const { error } = await supabase
+      .from("stations")
+      .update({
+        current_window_title: windowTitle,
+        current_process: processName,
+        activity_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) throw error;
+  }
+
   async setRemoteControl(
     ids: string[],
     on: boolean,

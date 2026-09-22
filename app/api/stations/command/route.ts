@@ -7,7 +7,7 @@ const activityLog = new ActivityLogService();
 export async function POST(req: Request) {
   const { ids, all, command } = await req.json();
 
-  if (command !== "shutdown" && command !== "restart" && command !== "screenshot" && command !== "update") {
+  if (command !== "shutdown" && command !== "restart" && command !== "screenshot" && command !== "update" && command !== "activity") {
     return Response.json({ error: "Invalid command" }, { status: 400 });
   }
 
@@ -29,11 +29,14 @@ export async function POST(req: Request) {
       // ignore
     }
 
-    void activityLog.logStationCommand(
-      "Admin",
-      names.length > 0 ? names : all ? ["all"] : (ids as string[]),
-      command as "shutdown" | "restart" | "screenshot" | "update"
-    );
+    // Activity polls are on-demand view refreshes — skip audit log to save writes.
+    if (command !== "activity") {
+      void activityLog.logStationCommand(
+        "Admin",
+        names.length > 0 ? names : all ? ["all"] : (ids as string[]),
+        command as "shutdown" | "restart" | "screenshot" | "update"
+      );
+    }
 
     return Response.json({ success: true });
   } catch (err: unknown) {
