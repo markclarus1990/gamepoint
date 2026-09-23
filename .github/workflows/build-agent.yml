@@ -36,9 +36,15 @@ jobs:
             $version = "${{ github.ref_name }}".Replace("agent-v","")
           }
           Write-Host "Building version $version"
-          # NOTE: InformationalVersion must be passed explicitly — the agent reads it
-          # at runtime (Updater.CurrentVersion) and a hardcoded csproj value would win
-          # over -p:Version, leaving the agent permanently reporting a stale version.
+          # Version source of truth: these -p: props (the .csproj has NO
+          # hardcoded <Version>). Clean first so a stale EXE is never packaged.
+          foreach ($stale in @("GamepointAgent.exe", "GamepointAgent.pdb", "VERSION")) {
+            $p = "./agent/dist/$stale"
+            if (Test-Path $p) { Remove-Item $p -Force; Write-Host "Cleaned stale $stale" }
+          }
+          # NOTE: all four version props must be passed explicitly — the agent
+          # reads InformationalVersion at runtime (Updater.CurrentVersion) and
+          # the updater verifies FileVersion/ProductVersion before install.
           dotnet publish ./agent/GamepointAgent/GamepointAgent.csproj `
             -c Release `
             -r win-x64 `
@@ -55,6 +61,30 @@ jobs:
           # Write version file next to the exe so the server/agent can read it
           Set-Content -Path "./agent/dist/VERSION" -Value $version -NoNewline
           Get-ChildItem ./agent/dist | Format-Table Name, Length
+          # Fail the build if the EXE does not carry the expected version —
+          # the updater would (correctly) refuse such an asset.
+          function Normalize-AgentVersion([string]$v) {
+            $s = $v.Trim().TrimStart('v')
+            if ($s.StartsWith("agent-v", [StringComparison]::OrdinalIgnoreCase)) { $s = $s.Substring("agent-v".Length) }
+            $plus = $s.IndexOf('+')
+            if ($plus -ge 0) { $s = $s.Substring(0, $plus) }
+            return $s.Trim()
+          }
+          $exeInfo = (Get-Item "./agent/dist/GamepointAgent.exe").VersionInfo
+          $embedded = if ($exeInfo.ProductVersion) { $exeInfo.ProductVersion } else { $exeInfo.FileVersion }
+          $embeddedNorm = Normalize-AgentVersion ($embedded | Out-String)
+          $expectedNorm = Normalize-AgentVersion $version
+          if ([string]::IsNullOrWhiteSpace($embedded)) {
+            throw "Build verification FAILED: GamepointAgent.exe has no embedded version info (expected v$expectedNorm)."
+          }
+          if ($embeddedNorm -ne $expectedNorm) {
+            throw "Build verification FAILED: embedded v$embeddedNorm != expected v$expectedNorm."
+          }
+          $exeHash = (Get-FileHash "./agent/dist/GamepointAgent.exe" -Algorithm SHA256).Hash.ToLower()
+          $exeSize = (Get-Item "./agent/dist/GamepointAgent.exe").Length
+          Write-Host "Verified embedded version: $embedded (normalized $embeddedNorm)"
+          Write-Host "  Size:   $exeSize bytes"
+          Write-Host "  SHA256: $exeHash"
 
       - name: Upload artifact (PR / manual)
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')

@@ -1,7 +1,11 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+
+[assembly: InternalsVisibleTo("GamepointAgent.Tests")]
 
 namespace GamepointAgent;
 
@@ -28,6 +32,10 @@ internal sealed class Updater
         public bool UpdateAvailable { get; set; }
         [JsonPropertyName("current")]
         public string? Current { get; set; }
+        [JsonPropertyName("size")]
+        public long? Size { get; set; }
+        [JsonPropertyName("sha256")]
+        public string? Sha256 { get; set; }
     }
 
     private readonly HttpClient _http;
@@ -105,7 +113,7 @@ internal sealed class Updater
                     // Trust server's updateAvailable, but recompute in case server omitted current comparison
                     if (!info.UpdateAvailable && IsNewer(info.Version, current) && !string.IsNullOrEmpty(info.DownloadUrl))
                         info.UpdateAvailable = true;
-                    ProgramDbg($"Updater server check: current={current} latest={info.Version} available={info.UpdateAvailable} url={(info.DownloadUrl ?? "none")}");
+                    ProgramDbg($"Updater server check: current={current} latest={info.Version} available={info.UpdateAvailable} url={(info.DownloadUrl ?? "none")} size={(info.Size?.ToString() ?? "unknown")} sha256={(ShortSha(info.Sha256) ?? "none")}");
                     // If server has a download URL and confirms update, return it
                     if (info.DownloadUrl != null || info.UpdateAvailable)
                         return info;
@@ -144,6 +152,8 @@ internal sealed class Updater
                         var ver = tag.Replace("agent-v", "").TrimStart('v');
                         if (string.IsNullOrWhiteSpace(ver)) continue;
                         string? dl = null;
+                        long? assetSize = null;
+                        string? assetSha = null;
                         if (rel.TryGetProperty("assets", out var assets))
                         {
                             foreach (var a in assets.EnumerateArray())
@@ -151,13 +161,17 @@ internal sealed class Updater
                                 if (a.GetProperty("name").GetString() == "GamepointAgent.exe")
                                 {
                                     dl = a.GetProperty("browser_download_url").GetString();
+                                    if (a.TryGetProperty("size", out var sizeEl) && sizeEl.TryGetInt64(out var sz))
+                                        assetSize = sz;
+                                    if (a.TryGetProperty("digest", out var digestEl))
+                                        assetSha = ParseSha256Digest(digestEl.GetString());
                                     break;
                                 }
                             }
                         }
                         if (dl == null) continue; // need exe asset
                         var available = IsNewer(ver, current);
-                        ProgramDbg($"Updater GitHub check: current={current} latest={ver} available={available}");
+                        ProgramDbg($"Updater GitHub check: current={current} latest={ver} available={available} size={(assetSize?.ToString() ?? "unknown")} sha256={(ShortSha(assetSha) ?? "none")}");
                         return new VersionInfo
                         {
                             Version = ver,
@@ -165,7 +179,9 @@ internal sealed class Updater
                             DownloadUrl = dl,
                             PublishedAt = rel.TryGetProperty("published_at", out var p) ? p.GetString() : null,
                             UpdateAvailable = available,
-                            Current = current
+                            Current = current,
+                            Size = assetSize,
+                            Sha256 = assetSha
                         };
                     }
                 }
@@ -183,17 +199,34 @@ internal sealed class Updater
     /// Download the exe and perform the self-replace dance.
     /// Shows progress via the optional callback.
     /// Returns true if the update was launched (app should exit).
+    /// Size/SHA/embedded-version are all verified before install; truncated
+    /// downloads are retried, version mismatches are hard failures.
     /// </summary>
-    public async Task<bool> DownloadAndApplyAsync(
+    public Task<bool> DownloadAndApplyAsync(
         string downloadUrl,
         string latestVersion,
         IWin32Window? owner,
         Action<string>? status = null,
         CancellationToken ct = default)
+        => DownloadAndApplyAsync(
+            new VersionInfo { Version = latestVersion, DownloadUrl = downloadUrl },
+            owner, status, ct);
+
+    public async Task<bool> DownloadAndApplyAsync(
+        VersionInfo info,
+        IWin32Window? owner,
+        Action<string>? status = null,
+        CancellationToken ct = default)
     {
+        var downloadUrl = info.DownloadUrl ?? "";
+        var latestVersion = info.Version ?? "";
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+            throw new ArgumentException("Missing download URL.", nameof(info));
+        var expectedSize = info.Size;
+        var expectedSha256 = info.Sha256;
         var pid = Environment.ProcessId;
         status?.Invoke($"Downloading v{latestVersion}...");
-        ProgramDbg($"[DOWNLOAD] start url={downloadUrl} expected={latestVersion} current={CurrentVersion} pid={pid}");
+        ProgramDbg($"[DOWNLOAD] start url={downloadUrl} expectedVersion={NormalizeVersion(latestVersion)} expectedSize={(expectedSize?.ToString() ?? "unknown")} expectedSha256={(ShortSha(expectedSha256) ?? "none")} current={CurrentVersion} pid={pid}");
 
         var exePath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
@@ -206,57 +239,77 @@ internal sealed class Updater
         // Temp download location — keep on same volume as target for fast move
         var tmpDir = Path.Combine(Path.GetTempPath(), "GamepointAgentUpdate");
         try { Directory.CreateDirectory(tmpDir); } catch { }
-        var newExe = Path.Combine(tmpDir, $"GamepointAgent_{latestVersion}.exe");
+        var newExe = Path.Combine(tmpDir, $"GamepointAgent_{NormalizeVersion(latestVersion)}.exe");
         var batPath = Path.Combine(tmpDir, "apply_update.bat");
 
         try
         {
-            // Download with retries — cafe networks drop mid-download, leaving a
-            // truncated file that passes the size check but has no readable
-            // version resource. Retry instead of failing on the first attempt.
+            // Download + verify with retries — cafe networks drop mid-download,
+            // leaving a truncated file whose version resource reads empty
+            // (NoVersion). Those MUST be retried. Only a version mismatch
+            // (right file, wrong version) is a hard failure.
             const int maxAttempts = 3;
             long received = 0;
             long? declared = null;
-            Exception? downloadError = null;
+            string? receivedSha = null;
+            string? embeddedVersion = null;
+            Exception? lastRetryable = null;
+            var verified = false;
             for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 ct.ThrowIfCancellationRequested();
                 if (attempt > 1)
                 {
                     status?.Invoke($"Retrying download ({attempt}/{maxAttempts})...");
-                    ProgramDbg($"[DOWNLOAD] retry attempt={attempt}/{maxAttempts}");
+                    ProgramDbg($"[DOWNLOAD] retry attempt={attempt}/{maxAttempts} url={downloadUrl}");
+                    // Delete the partial file BEFORE retrying so a corrupt
+                    // exe can never be mistaken for a good download.
+                    try { if (File.Exists(newExe)) File.Delete(newExe); } catch (Exception ex) { ProgramDbg($"[DOWNLOAD] cleanup before retry failed: {ex.Message}"); }
                     await Task.Delay(TimeSpan.FromSeconds(5), ct);
                 }
                 try
                 {
+                    ProgramDbg($"[DOWNLOAD] attempt={attempt}/{maxAttempts} url={downloadUrl} expectedVersion={NormalizeVersion(latestVersion)} expectedSize={(expectedSize?.ToString() ?? "unknown")} expectedSha256={(ShortSha(expectedSha256) ?? "none")}");
                     (received, declared) = await DownloadOnceAsync(downloadUrl, newExe, latestVersion, status, ct);
-                    downloadError = null;
-                    break;
+                    if (!declared.HasValue || declared.Value <= 0)
+                        ProgramDbg($"[DOWNLOAD] attempt={attempt}/{maxAttempts} no Content-Length declared (received={received}) — relying on size/sha/version verification");
+                    status?.Invoke($"Verifying v{latestVersion}... (attempt {attempt}/{maxAttempts})");
+                    var verification = VerifyDownloadedFile(newExe, latestVersion, expectedSize ?? declared, expectedSha256);
+                    receivedSha = verification.ReceivedSha256;
+                    embeddedVersion = verification.EmbeddedVersion;
+                    ProgramDbg($"[VERIFY] attempt={attempt}/{maxAttempts} received={verification.ReceivedBytes} expectedSize={((expectedSize ?? declared)?.ToString() ?? "unknown")} shaReceived={(ShortSha(verification.ReceivedSha256) ?? "none")} shaExpected={(ShortSha(expectedSha256) ?? "none")} embedded={verification.EmbeddedVersion ?? "none"} expectedVersion={NormalizeVersion(latestVersion)} ok={verification.Ok} retryable={verification.Retryable} error={verification.Error ?? "none"}");
+                    if (verification.Ok)
+                    {
+                        verified = true;
+                        lastRetryable = null;
+                        received = verification.ReceivedBytes;
+                        if (!string.IsNullOrWhiteSpace(verification.ReceivedSha256))
+                            receivedSha = verification.ReceivedSha256;
+                        break;
+                    }
+                    if (!verification.Retryable)
+                        throw new NonRetryableUpdateException(verification.Error ?? "Version verification failed.");
+                    throw new Exception(verification.Error);
+                }
+                catch (NonRetryableUpdateException)
+                {
+                    throw;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    downloadError = ex;
+                    lastRetryable = ex;
                     ProgramDbg($"[DOWNLOAD] attempt {attempt}/{maxAttempts} failed: {ex.Message}");
+                    // Ensure the bad partial is gone before the next attempt.
+                    try { if (attempt < maxAttempts && File.Exists(newExe)) File.Delete(newExe); } catch { }
                 }
             }
-            if (downloadError is not null)
-                throw new Exception($"Download failed after {maxAttempts} attempts: {downloadError.Message}");
-            ProgramDbg($"[DOWNLOAD] complete bytes={received} declared={declared?.ToString() ?? "unknown"} path={newExe}");
-
-            // VERIFY VERSION — read the embedded version of the downloaded exe
-            // before it ever replaces the running one. A mismatch means the
-            // release asset is stale/mislabeled; swapping it would leave the
-            // agent reporting the wrong version forever.
-            status?.Invoke($"Verifying v{latestVersion}...");
-            var check = CheckEmbeddedVersion(newExe);
-            ProgramDbg($"[VERIFY VERSION] expected={NormalizeVersion(latestVersion)} result={check.Kind} version={check.Version ?? "none"} detail={check.Detail ?? "-"} bytes={received} path={newExe}");
-            if (check.Kind == VersionCheckKind.Unreadable)
-                throw new Exception($"Cannot read the downloaded file ({check.Detail}) — it may be locked by antivirus/security or the disk. Refusing to install; try again.");
-            if (check.Kind == VersionCheckKind.NoVersion || string.IsNullOrWhiteSpace(check.Version))
-                throw new Exception($"Downloaded exe has no embedded version info (got {received} of {declared?.ToString() ?? "unknown"} bytes) — likely a truncated download. Refusing to install; try again.");
-            if (!VersionsMatch(check.Version, latestVersion))
-                throw new Exception($"Version mismatch: expected v{NormalizeVersion(latestVersion)} but downloaded exe reports v{check.Version}. Not installing.");
-            ProgramDbg($"[VERIFY VERSION] OK v{check.Version}");
+            if (!verified)
+            {
+                if (lastRetryable is not null)
+                    throw new Exception($"Download failed after {maxAttempts} attempts: {lastRetryable.Message} See agent-debug.log ([DOWNLOAD]/[VERIFY]) for received/expected bytes and SHA.");
+                throw new Exception($"Download verification failed after {maxAttempts} attempts. See agent-debug.log ([DOWNLOAD]/[VERIFY]) for details.");
+            }
+            ProgramDbg($"[VERIFY] FINAL OK version={embeddedVersion} bytes={received} sha256={(ShortSha(receivedSha) ?? "none")} path={newExe}");
 
             status?.Invoke("Preparing update...");
 
@@ -320,6 +373,22 @@ internal sealed class Updater
             status?.Invoke("Update cancelled");
             return false;
         }
+        catch (NonRetryableUpdateException ex)
+        {
+            // Hard failure: right file, wrong version — retrying is pointless.
+            ProgramDbg($"[VERIFY] HARD FAILURE (no retry): {ex.Message}");
+            ProgramDbg($"Updater apply failed: {ex}");
+            try
+            {
+                if (owner != null)
+                    MessageBox.Show(owner, $"Update failed:\n{ex.Message}", "GamepointAgent Update", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                else
+                    MessageBox.Show($"Update failed:\n{ex.Message}", "GamepointAgent Update", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch { }
+            status?.Invoke($"Update failed: {ex.Message}");
+            return false;
+        }
         catch (Exception ex)
         {
             ProgramDbg($"Updater apply failed: {ex}");
@@ -371,6 +440,114 @@ internal sealed class Updater
         if (check.Kind != VersionCheckKind.Ok)
             ProgramDbg($"[VERIFY VERSION] could not read version resource: {check.Detail}");
         return check.Version;
+    }
+
+    /// <summary>
+    /// Thrown for verification failures that must NOT be retried: the file
+    /// downloaded fine but reports the wrong version (stale/mislabeled asset).
+    /// Retrying the same URL would download the same wrong file.
+    /// </summary>
+    public sealed class NonRetryableUpdateException : Exception
+    {
+        public NonRetryableUpdateException(string message) : base(message) { }
+    }
+
+    /// <summary>
+    /// Result of verifying a downloaded exe. Ok=true means size+sha+embedded
+    /// version all pass and the file may replace the installation. Retryable
+    /// distinguishes truncated/corrupt downloads (retry) from wrong-version
+    /// assets (hard failure, Retryable=false).
+    /// </summary>
+    public sealed record DownloadVerification(
+        bool Ok,
+        bool Retryable,
+        string? Error,
+        string? EmbeddedVersion,
+        long ReceivedBytes,
+        string? ReceivedSha256);
+
+    /// <summary>
+    /// Verifies a downloaded exe against size, SHA-256, and embedded version.
+    /// Pure (no network/UI) so it is unit-testable. Never throws for
+    /// verification failures — encodes retryability in the result.
+    /// </summary>
+    public static DownloadVerification VerifyDownloadedFile(
+        string path,
+        string expectedVersion,
+        long? expectedSize,
+        string? expectedSha256)
+    {
+        long received;
+        try
+        {
+            var fi = new FileInfo(path);
+            if (!fi.Exists)
+                return new DownloadVerification(false, true, "Downloaded file is missing after download — likely a truncated download. Will retry.", null, 0, null);
+            received = fi.Length;
+        }
+        catch (Exception ex)
+        {
+            return new DownloadVerification(false, true, $"Cannot stat downloaded file ({ex.Message}) — likely disk/antivirus. Will retry.", null, 0, null);
+        }
+
+        string? receivedSha = null;
+        if (!string.IsNullOrWhiteSpace(expectedSha256))
+        {
+            try
+            {
+                receivedSha = ComputeSha256(path);
+            }
+            catch (Exception ex)
+            {
+                return new DownloadVerification(false, true, $"Cannot hash downloaded file ({ex.Message}) — likely locked or truncated. Will retry.", null, received, null);
+            }
+            if (!string.Equals(receivedSha, expectedSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+                return new DownloadVerification(false, true, $"SHA-256 mismatch: received {ShortSha(receivedSha)} but expected {ShortSha(expectedSha256)} ({received} bytes) — likely a truncated download. Will retry.", null, received, receivedSha);
+        }
+
+        if (expectedSize.HasValue && expectedSize.Value > 0 && received != expectedSize.Value)
+            return new DownloadVerification(false, true, $"Size mismatch: received {received} of {expectedSize.Value} bytes — network may have dropped. Will retry.", null, received, receivedSha ?? TryComputeSha256(path));
+
+        var check = CheckEmbeddedVersion(path);
+        if (check.Kind == VersionCheckKind.Unreadable)
+            return new DownloadVerification(false, true, $"Cannot read the downloaded file ({check.Detail}) — it may be locked by antivirus/security or truncated. Will retry.", null, received, receivedSha ?? TryComputeSha256(path));
+        if (check.Kind == VersionCheckKind.NoVersion || string.IsNullOrWhiteSpace(check.Version))
+            return new DownloadVerification(false, true, $"Downloaded exe has no embedded version info (got {received} of {(expectedSize?.ToString() ?? "unknown")} bytes) — likely a truncated download. Will retry automatically.", null, received, receivedSha ?? TryComputeSha256(path));
+        if (!VersionsMatch(check.Version, expectedVersion))
+            return new DownloadVerification(false, false, $"Version mismatch: expected v{NormalizeVersion(expectedVersion)} but downloaded exe reports v{check.Version}. Not installing.", check.Version, received, receivedSha ?? TryComputeSha256(path));
+        return new DownloadVerification(true, false, null, check.Version, received, receivedSha ?? TryComputeSha256(path));
+    }
+
+    /// <summary>Streams a file through SHA-256 (safe for 80MB+ exes).</summary>
+    public static string ComputeSha256(string path)
+    {
+        using var sha = SHA256.Create();
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, false);
+        var hash = sha.ComputeHash(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string? TryComputeSha256(string path)
+    {
+        try { return ComputeSha256(path); } catch { return null; }
+    }
+
+    /// <summary>Parses a GitHub asset `digest` ("sha256:abc…") to bare hex.</summary>
+    public static string? ParseSha256Digest(string? digest)
+    {
+        if (string.IsNullOrWhiteSpace(digest)) return null;
+        var d = digest.Trim();
+        if (d.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+            d = d.Substring("sha256:".Length);
+        d = d.Trim();
+        return d.Length >= 16 ? d.ToLowerInvariant() : null;
+    }
+
+    private static string? ShortSha(string? sha)
+    {
+        if (string.IsNullOrWhiteSpace(sha)) return null;
+        var s = sha.Trim();
+        return s.Length > 12 ? s.Substring(0, 12) + "…" : s;
     }
 
     /// <summary>

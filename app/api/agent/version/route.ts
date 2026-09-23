@@ -5,7 +5,12 @@
  * Query:  ?current=1.0.42  (optional — current agent version for comparison)
  * Headers: x-agent-key      (optional — if present, validates the caller)
  *
- * Response: { version, tag, downloadUrl, publishedAt, updateAvailable }
+ * Response: { version, tag, downloadUrl, size, sha256, publishedAt, updateAvailable }
+ *
+ * `size` is the release asset byte size and `sha256` the asset digest
+ * (parsed from GitHub's `digest: sha256:...`). The agent verifies
+ * downloaded length == size, SHA-256 == sha256, and embedded FileVersion
+ * == version before installing; all may be null on the env fallback path.
  *
  * Data source priority:
  *  1. GitHub Releases API for markclarus1990/gamepoint (requires GITHUB_TOKEN for private repos)
@@ -40,7 +45,14 @@ interface GhRelease {
   tag_name: string;
   name: string;
   published_at: string;
-  assets: { name: string; browser_download_url: string; size: number }[];
+  assets: { name: string; browser_download_url: string; size: number; digest?: string | null }[];
+}
+
+function parseSha256Digest(digest: string | null | undefined): string | null {
+  if (!digest) return null;
+  const d = digest.trim();
+  const hex = d.toLowerCase().startsWith("sha256:") ? d.slice("sha256:".length) : d;
+  return hex.trim().length >= 16 ? hex.trim().toLowerCase() : null;
 }
 
 export async function GET(req: Request) {
@@ -55,6 +67,9 @@ export async function GET(req: Request) {
   let version = process.env.AGENT_VERSION || "";
   let tag = version ? `agent-v${version}` : "";
   let downloadUrl = process.env.AGENT_DOWNLOAD_URL || "";
+  // Optional integrity overrides when GitHub is bypassed (env fallback path).
+  let size: number | null = process.env.AGENT_SIZE ? parseInt(process.env.AGENT_SIZE, 10) || null : null;
+  let sha256: string | null = process.env.AGENT_SHA256?.trim().toLowerCase() || null;
   let publishedAt: string | null = null;
   let releaseNotes: string | null = null;
 
@@ -87,7 +102,11 @@ export async function GET(req: Request) {
         version = rel.tag_name.replace(/^agent-v/, "").replace(/^v/, "");
         publishedAt = rel.published_at;
         const exe = rel.assets.find((a) => a.name === "GamepointAgent.exe");
-        if (exe) downloadUrl = exe.browser_download_url;
+        if (exe) {
+          downloadUrl = exe.browser_download_url;
+          size = typeof exe.size === "number" ? exe.size : size;
+          sha256 = parseSha256Digest(exe.digest ?? null) ?? sha256;
+        }
         // Keep tag for display even if asset missing
       }
     } else {
@@ -111,6 +130,8 @@ export async function GET(req: Request) {
       version,
       tag,
       downloadUrl: downloadUrl || null,
+      size,
+      sha256,
       publishedAt,
       releaseNotes,
       updateAvailable,

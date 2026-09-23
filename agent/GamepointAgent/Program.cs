@@ -721,7 +721,7 @@ internal static class Program
             _countdownForm?.SetUpdateStatus($"Downloading v{info.Version}...", false);
             try
             {
-                var ok = await _updater.DownloadAndApplyAsync(info.DownloadUrl!, info.Version, dlgOwner,
+                var ok = await _updater.DownloadAndApplyAsync(info, dlgOwner,
                     status =>
                     {
                         try
