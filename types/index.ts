@@ -326,9 +326,24 @@ export interface TournamentMatch {
   team2: string | null;
   team1_user_id: string | null;
   team2_user_id: string | null;
+  player_a_team: string | null;
   winner: string | null;
   winner_user_id: string | null;
   loser: string | null;
+  status: "scheduled" | "completed";
+  scheduled_date: string | null;
+  created_at: string;
+}
+
+export interface TournamentGame {
+  id: string;
+  match_id: string;
+  tournament_type: TournamentType;
+  game_number: number;
+  home_team: string | null;
+  home_user_id: string | null;
+  winner: string | null;
+  winner_user_id: string | null;
   status: "scheduled" | "completed";
   scheduled_date: string | null;
   created_at: string;

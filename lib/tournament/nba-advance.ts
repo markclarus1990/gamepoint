@@ -20,12 +20,163 @@ export type NbaMatchRow = {
   team2: string | null;
   team1_user_id: string | null;
   team2_user_id: string | null;
+  player_a_team?: string | null;
   winner: string | null;
   winner_user_id: string | null;
   loser: string | null;
   status: string | null;
   scheduled_date?: string | null;
 };
+
+export type NbaGameRow = {
+  id?: string;
+  match_id: string;
+  tournament_type?: string | null;
+  game_number: number;
+  home_team: string | null;
+  home_user_id: string | null;
+  winner: string | null;
+  winner_user_id: string | null;
+  status: string | null;
+  scheduled_date?: string | null;
+};
+
+// ---- Best-of-5 series ----
+// Player A (coin toss) hosts G1/G3/G5, Player B hosts G2/G4. First to 3 wins.
+export const SERIES_CLINCH_WINS = 3;
+export const SERIES_MAX_GAMES = 5;
+
+function homeSideForGame(gameNumber: number): "A" | "B" {
+  return gameNumber === 2 || gameNumber === 4 ? "B" : "A";
+}
+
+export function homeTeamForGame(
+  gameNumber: number,
+  playerA: string,
+  playerB: string
+): string {
+  return homeSideForGame(gameNumber) === "A" ? playerA : playerB;
+}
+
+/** Build the 5 scheduled game rows for a series once Player A is known. */
+export function buildSeriesGames(match: NbaMatchRow, playerA: string) {
+  const playerB =
+    match.team1 === playerA ? (match.team2 as string) : (match.team1 as string);
+  const userFor = (team: string | null) =>
+    team === match.team1 ? (match.team1_user_id ?? null) : (match.team2_user_id ?? null);
+  return [1, 2, 3, 4, 5].map((n) => {
+    const home = homeTeamForGame(n, playerA, playerB);
+    return {
+      match_id: match.match_id,
+      tournament_type: "nba",
+      game_number: n,
+      home_team: home,
+      home_user_id: userFor(home),
+      status: "scheduled",
+    };
+  });
+}
+
+export function tallySeries(
+  games: NbaGameRow[],
+  team1: string | null,
+  team2: string | null
+): { wins1: number; wins2: number; played: number } {
+  let wins1 = 0;
+  let wins2 = 0;
+  let played = 0;
+  for (const g of games) {
+    if (g.status === "completed" && g.winner) {
+      played++;
+      if (g.winner === team1) wins1++;
+      else if (g.winner === team2) wins2++;
+    }
+  }
+  return { wins1, wins2, played };
+}
+
+/** Series winner = first to 3, else null. */
+export function seriesWinnerFromTally(
+  tally: { wins1: number; wins2: number },
+  team1: string | null,
+  team2: string | null
+): string | null {
+  if (team1 && tally.wins1 >= SERIES_CLINCH_WINS) return team1;
+  if (team2 && tally.wins2 >= SERIES_CLINCH_WINS) return team2;
+  return null;
+}
+
+/**
+ * Can a winner be recorded for `gameNumber` right now?
+ * Rules: no skipping (previous game must be completed), G5 only at 2-2,
+ * nothing after a clinch.
+ */
+export function gameUnlocked(
+  games: NbaGameRow[],
+  gameNumber: number,
+  team1: string | null,
+  team2: string | null
+): { ok: boolean; reason?: string } {
+  if (gameNumber < 1 || gameNumber > SERIES_MAX_GAMES) {
+    return { ok: false, reason: "game_number must be 1-5" };
+  }
+  const byNum = new Map(games.map((g) => [g.game_number, g]));
+  const tally = tallySeries(games, team1, team2);
+  if (seriesWinnerFromTally(tally, team1, team2)) {
+    return { ok: false, reason: "Series already decided — override a game result to reopen" };
+  }
+  for (let n = 1; n < gameNumber; n++) {
+    const prev = byNum.get(n);
+    if (!prev || prev.status !== "completed") {
+      return { ok: false, reason: `Play Game ${n} first` };
+    }
+  }
+  if (gameNumber === 5 && !(tally.wins1 === 2 && tally.wins2 === 2)) {
+    return { ok: false, reason: "Game 5 only if tied 2-2" };
+  }
+  return { ok: true };
+}
+
+/**
+ * Reconcile the series row with its games. Sets/clears the series winner.
+ * Returns what changed so the caller can advance or cascade.
+ */
+export async function syncSeriesResult(
+  db: SupabaseClient,
+  match: NbaMatchRow,
+  games: NbaGameRow[]
+): Promise<
+  | { changed: false }
+  | { changed: true; clinched: true; winner: string; winner_user_id: string | null; loser: string | null }
+  | { changed: true; clinched: false; reopened: boolean }
+> {
+  const tally = tallySeries(games, match.team1, match.team2);
+  const winner = seriesWinnerFromTally(tally, match.team1, match.team2);
+
+  if (winner) {
+    const winner_user_id =
+      winner === match.team1 ? (match.team1_user_id ?? null) : (match.team2_user_id ?? null);
+    const loser = winner === match.team1 ? match.team2 : match.team1;
+    if (match.status === "completed" && match.winner === winner) {
+      return { changed: false };
+    }
+    await db
+      .from("tournament_matches")
+      .update({ winner, winner_user_id, loser, status: "completed" })
+      .eq("match_id", match.match_id);
+    return { changed: true, clinched: true, winner, winner_user_id, loser };
+  }
+
+  // No clinch — reopen a previously completed (legacy or overridden) series
+  if (match.status === "completed") {
+    await db
+      .from("tournament_matches")
+      .update({ winner: null, winner_user_id: null, loser: null, status: "scheduled" })
+      .eq("match_id", match.match_id);
+    return { changed: true, clinched: false, reopened: true };
+  }
+  return { changed: false };
+}
 
 export const R1_IDS = (conf: "East" | "West") => {
   const c = conf.toLowerCase();
@@ -286,9 +437,16 @@ export async function advanceBracket(
           winner: null,
           winner_user_id: null,
           loser: null,
+          player_a_team: null,
         })
         .eq("match_id", wid);
-      if (!error) createdNext.push(wid);
+      if (!error) {
+        createdNext.push(wid);
+        // Participants changed → any already-played games + toss are stale
+        try {
+          await db.from("tournament_games").delete().eq("match_id", wid);
+        } catch {}
+      }
     } else {
       const { error } = await db.from("tournament_matches").insert(w);
       if (!error) createdNext.push(wid);
@@ -300,6 +458,9 @@ export async function advanceBracket(
 
 /**
  * Reset a match to scheduled and remove/clean downstream that depended on its old winner.
+ * NOTE: does not touch this match's own games — callers doing a full series
+ * reset delete those explicitly; game-level overrides must keep them.
+ * (Deleted downstream pairings cascade to their games via FK.)
  */
 export async function resetMatchAndDownstream(
   db: SupabaseClient,

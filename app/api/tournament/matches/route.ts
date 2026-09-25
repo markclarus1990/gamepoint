@@ -82,16 +82,31 @@ export async function GET(req: Request) {
     }
 
     const list = matches || [];
-    // Player names for bracket display (team owners + winners)
+    // Per-game results (best-of-5) + player names for bracket display
     let users: Record<string, string> = {};
+    let games: unknown[] = [];
+    try {
+      const { data: gdata } = await supabase
+        .from("tournament_games")
+        .select("*")
+        .eq("tournament_type", "nba")
+        .order("game_number", { ascending: true });
+      games = gdata || [];
+    } catch {}
     try {
       const ids = Array.from(
         new Set(
-          list.flatMap((m: { team1_user_id?: string | null; team2_user_id?: string | null; winner_user_id?: string | null }) => [
-            m.team1_user_id,
-            m.team2_user_id,
-            m.winner_user_id,
-          ]).filter(Boolean) as string[]
+          [
+            ...list.flatMap((m: { team1_user_id?: string | null; team2_user_id?: string | null; winner_user_id?: string | null }) => [
+              m.team1_user_id,
+              m.team2_user_id,
+              m.winner_user_id,
+            ]),
+            ...(games as { home_user_id?: string | null; winner_user_id?: string | null }[]).flatMap((g) => [
+              g.home_user_id,
+              g.winner_user_id,
+            ]),
+          ].filter(Boolean) as string[]
         )
       );
       if (ids.length > 0) {
@@ -100,7 +115,7 @@ export async function GET(req: Request) {
       }
     } catch {}
 
-    return Response.json({ matches: list, users });
+    return Response.json({ matches: list, games, users });
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : typeof err === "object" && err !== null && "message" in err ? String((err as { message: string }).message) : "Internal server error";
