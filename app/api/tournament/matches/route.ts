@@ -3,38 +3,33 @@ import { supabase } from "@/lib/supabase";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { matchId, date, winner, loser, winner_user_id, round, conference } = body;
+    const { matchId, date, winner, round, conference } = body;
 
     if (!matchId || !date) {
       return Response.json({ error: "matchId and date are required" }, { status: 400 });
     }
 
-    // Validate winner is participant if provided — fetch match if exists
+    // Winners are admin-controlled with auto-advancement — use /api/admin/tournament/set-winner.
+    // This public route only schedules dates (no winner) to prevent unauthorized bracket changes.
     if (winner) {
-      try {
-        const { data: existing } = await supabase.from("tournament_matches").select("team1, team2").eq("match_id", matchId).maybeSingle();
-        if (existing && existing.team1 && existing.team2) {
-          if (winner !== existing.team1 && winner !== existing.team2) {
-            return Response.json({ error: "winner must be one of the two teams in this match" }, { status: 400 });
-          }
-        }
-      } catch {}
+      return Response.json(
+        { error: "Setting winners is admin-only — use /api/admin/tournament/set-winner" },
+        { status: 403 }
+      );
     }
 
     const upsertPayload: Record<string, unknown> = {
       match_id: matchId,
       tournament_type: "nba",
       scheduled_date: date,
-      winner: winner || null,
-      loser: loser || null,
-      winner_user_id: winner_user_id || null,
-      status: winner ? "completed" : "scheduled",
+      status: "scheduled",
     };
     if (round) upsertPayload.round = round;
     if (conference) upsertPayload.conference = conference;
 
     const { error } = await supabase.from("tournament_matches").upsert(upsertPayload as unknown as Record<string, unknown>, {
       onConflict: "match_id",
+      ignoreDuplicates: false,
     });
 
     if (error) {
@@ -43,9 +38,7 @@ export async function POST(req: Request) {
         {
           match_id: matchId,
           scheduled_date: date,
-          winner,
-          loser,
-          status: winner ? "completed" : "scheduled",
+          status: "scheduled",
         } as unknown as Record<string, unknown>,
         { onConflict: "match_id" }
       );
@@ -88,7 +81,26 @@ export async function GET(req: Request) {
       return Response.json({ matches: m2 || [] });
     }
 
-    return Response.json({ matches: matches || [] });
+    const list = matches || [];
+    // Player names for bracket display (team owners + winners)
+    let users: Record<string, string> = {};
+    try {
+      const ids = Array.from(
+        new Set(
+          list.flatMap((m: { team1_user_id?: string | null; team2_user_id?: string | null; winner_user_id?: string | null }) => [
+            m.team1_user_id,
+            m.team2_user_id,
+            m.winner_user_id,
+          ]).filter(Boolean) as string[]
+        )
+      );
+      if (ids.length > 0) {
+        const { data: udata } = await supabase.from("users").select("id, name").in("id", ids);
+        users = Object.fromEntries(((udata as { id: string; name: string }[]) || []).map((u) => [u.id, u.name]));
+      }
+    } catch {}
+
+    return Response.json({ matches: list, users });
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : typeof err === "object" && err !== null && "message" in err ? String((err as { message: string }).message) : "Internal server error";

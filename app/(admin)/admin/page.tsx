@@ -32,6 +32,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { AdminNumberInput } from "@/components/AdminNumberInput";
+import AdminTournament from "@/components/AdminTournament";
 
 type User = {
   id: string;
@@ -88,7 +89,7 @@ type Station = {
   activity_at?: string | null;
 };
 
-type Tab = "stations" | "requests" | "shop" | "users" | "history" | "activity";
+type Tab = "stations" | "requests" | "shop" | "users" | "history" | "activity" | "tournament";
 
 type ActivityLogEntry = {
   id: string;
@@ -939,6 +940,7 @@ export default function Admin() {
     { id: "requests", label: "Requests", icon: Gift, badge: pending.length },
     { id: "shop", label: "Shop", icon: ShoppingBag, badge: shopOrders.length },
     { id: "users", label: "Users", icon: Users },
+    { id: "tournament", label: "Tournament", icon: Trophy },
     { id: "history", label: "History", icon: History },
     { id: "activity", label: "Activity", icon: Activity },
   ];
@@ -2031,6 +2033,9 @@ export default function Admin() {
           )}
         </div>
       )}
+
+      {/* ============ TOURNAMENT TAB ============ */}
+      {tab === "tournament" && <AdminTournament notify={notify} />}
 
       {/* ============ DEDUCT MODAL ============ */}
       {showDeductModal && selectedUser && (

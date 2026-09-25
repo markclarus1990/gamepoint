@@ -20,6 +20,21 @@ interface PlayerInfo {
   slotIndex?: number;
 }
 
+interface PersistedMatch {
+  match_id: string;
+  round: string;
+  conference: string | null;
+  seed1: number | null;
+  seed2: number | null;
+  team1: string | null;
+  team2: string | null;
+  team1_user_id: string | null;
+  team2_user_id: string | null;
+  winner: string | null;
+  winner_user_id: string | null;
+  status: string;
+}
+
 interface BracketData {
   east: { players: { id: string; team: string; seed: number }[]; firstRoundMatchups: { team1: string; team2: string; seed1: number; seed2?: number; seed8?: number; matchId: string }[] };
   west: { players: { id: string; team: string; seed: number }[]; firstRoundMatchups: { team1: string; team2: string; seed1: number; seed2?: number; seed8?: number; matchId: string }[] };
@@ -33,7 +48,8 @@ export default function NbaPage() {
   const [westCount, setWestCount] = useState(0);
   const [tournamentStarted, setTournamentStarted] = useState(false);
   const [bracket, setBracket] = useState<BracketData | null>(null);
-  const [matches, setMatches] = useState<unknown[]>([]);
+  const [matches, setMatches] = useState<PersistedMatch[]>([]);
+  const [matchUsers, setMatchUsers] = useState<Record<string, string>>({});
   const [currentUser, setCurrentUser] = useState<{ id: string; name: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -78,9 +94,11 @@ export default function NbaPage() {
         if (bRes.bracket) setBracket(bRes.bracket);
         else if (bRes.error) setBracket(null);
         setMatches(mRes.matches || []);
+        setMatchUsers(mRes.users || {});
       } else {
         setBracket(null);
         setMatches([]);
+        setMatchUsers({});
       }
     } catch {}
   }, []);
@@ -100,6 +118,23 @@ export default function NbaPage() {
   const currentUserPlayer = players.find((p) => p.id === currentUser?.id);
   const currentUserRegistered = Boolean(currentUserPlayer);
   const spotsLeft = MAX_PLAYERS - registeredCount;
+
+  const matchById = new Map(matches.map((m) => [m.match_id, m]));
+  // Player name lookup: prefer match users map, fall back to slot players (id + team)
+  const teamOwnerName = (userId: string | null, team: string | null) => {
+    if (userId && matchUsers[userId]) return matchUsers[userId];
+    if (team) {
+      const p = players.find((pl) => pl.team === team);
+      if (p) return p.name;
+    }
+    return null;
+  };
+  const laterMatches = matches.filter((m) => m.round !== "First Round");
+  const semifinalMatches = laterMatches.filter((m) => m.round === "Semifinals");
+  const confFinalMatches = laterMatches.filter((m) => m.round === "Conference Finals");
+  const finalMatch = laterMatches.find((m) => m.round === "Finals") || null;
+  const championTeam = finalMatch?.status === "completed" ? finalMatch.winner : null;
+  const championName = finalMatch?.winner_user_id ? teamOwnerName(finalMatch.winner_user_id, finalMatch.winner) : championTeam ? teamOwnerName(null, championTeam) : null;
 
   function handleSlotClick(player: PlayerInfo | null, slotIndex?: number) {
     if (submitting) return;
@@ -458,47 +493,112 @@ export default function NbaPage() {
         {tournamentStarted && bracket ? (
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 backdrop-blur-md p-6 md:p-8">
             <h2 className="text-xl md:text-2xl font-black text-white mb-6 flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-yellow-400" /> Playoff Bracket — First Round
+              <Trophy className="w-5 h-5 text-yellow-400" /> Playoff Bracket
             </h2>
-            <p className="text-sm text-gray-400 mb-6">Auto-generated when 16th team locks balanced 8 East + 8 West by real team conference. Seeds by registration order within each conference (earliest in that conference = 1-seed). Each team auto-populates to its own conference. Winners advance via <code className="text-orange-300">/api/tournament/matches</code>.</p>
+            <p className="text-sm text-gray-400 mb-6">Auto-generated when 16th team locks balanced 8 East + 8 West by real team conference. Seeds by registration order within each conference (earliest in that conference = 1-seed). Each team auto-populates to its own conference. Winners are set by admin and advance automatically.</p>
 
             <div className="grid lg:grid-cols-2 gap-6">
               {/* East */}
               <div className="rounded-xl border border-red-500/20 bg-red-950/10 p-4">
                 <h3 className="font-black text-red-300 mb-3 flex items-center gap-2">East Conference <span className="text-xs font-normal text-red-300/70">seeds 1-8</span></h3>
                 <div className="space-y-3">
-                  {bracket.east.firstRoundMatchups.map((m) => (
-                    <div key={m.matchId} className="rounded-lg border border-zinc-700 bg-zinc-900/80 p-3 flex items-center justify-between gap-2">
-                      <div className="flex-1">
+                  {bracket.east.firstRoundMatchups.map((m) => {
+                    const pm = matchById.get(m.matchId);
+                    const owner1 = pm ? teamOwnerName(pm.team1_user_id, m.team1) : teamOwnerName(null, m.team1);
+                    const owner2 = pm ? teamOwnerName(pm.team2_user_id, m.team2) : teamOwnerName(null, m.team2);
+                    return (
+                    <div key={m.matchId} className={`rounded-lg border p-3 flex items-center justify-between gap-2 ${pm?.status === "completed" ? "border-emerald-500/30 bg-emerald-500/[0.04]" : "border-zinc-700 bg-zinc-900/80"}`}>
+                      <div className="flex-1 min-w-0">
                         <div className="text-xs text-gray-500">Seed {m.seed1} vs Seed {m.seed2 ?? m.seed8}</div>
-                        <div className="font-bold text-white text-sm flex items-center gap-1.5 flex-wrap"><img src={getTeamLogo(m.team1)} alt={m.team1} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /> {m.team1} <span className="text-gray-500 font-normal">vs</span> {m.team2} <img src={getTeamLogo(m.team2)} alt={m.team2} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /></div>
+                        <div className="font-bold text-white text-sm flex items-center gap-1.5 flex-wrap"><img src={getTeamLogo(m.team1)} alt={m.team1} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /> <span className={pm?.winner === m.team1 ? "text-emerald-300" : ""}>{m.team1}{pm?.winner === m.team1 ? " 🏆" : ""}<span className="block text-[11px] font-normal text-gray-400">👤 {owner1 ?? "—"}</span></span> <span className="text-gray-500 font-normal">vs</span> <span className={pm?.winner === m.team2 ? "text-emerald-300" : ""}>{m.team2}{pm?.winner === m.team2 ? " 🏆" : ""}<span className="block text-[11px] font-normal text-gray-400">👤 {owner2 ?? "—"}</span></span> <img src={getTeamLogo(m.team2)} alt={m.team2} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /></div>
+                        {pm?.status === "completed" && pm.winner && (
+                          <div className="text-[11px] text-emerald-400 font-semibold mt-1">Winner: {pm.winner}{pm.winner_user_id && teamOwnerName(pm.winner_user_id, pm.winner) ? ` (${teamOwnerName(pm.winner_user_id, pm.winner)})` : ""}</div>
+                        )}
                       </div>
-                      <span className="text-[10px] px-2 py-1 rounded-full bg-zinc-800 text-gray-400 border border-zinc-700">{m.matchId}</span>
+                      <span className="text-[10px] px-2 py-1 rounded-full bg-zinc-800 text-gray-400 border border-zinc-700 shrink-0">{m.matchId}</span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               {/* West */}
               <div className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-4">
                 <h3 className="font-black text-blue-300 mb-3 flex items-center gap-2">West Conference <span className="text-xs font-normal text-blue-300/70">seeds 1-8</span></h3>
                 <div className="space-y-3">
-                  {bracket.west.firstRoundMatchups.map((m) => (
-                    <div key={m.matchId} className="rounded-lg border border-zinc-700 bg-zinc-900/80 p-3 flex items-center justify-between gap-2">
-                      <div className="flex-1">
+                  {bracket.west.firstRoundMatchups.map((m) => {
+                    const pm = matchById.get(m.matchId);
+                    const owner1 = pm ? teamOwnerName(pm.team1_user_id, m.team1) : teamOwnerName(null, m.team1);
+                    const owner2 = pm ? teamOwnerName(pm.team2_user_id, m.team2) : teamOwnerName(null, m.team2);
+                    return (
+                    <div key={m.matchId} className={`rounded-lg border p-3 flex items-center justify-between gap-2 ${pm?.status === "completed" ? "border-emerald-500/30 bg-emerald-500/[0.04]" : "border-zinc-700 bg-zinc-900/80"}`}>
+                      <div className="flex-1 min-w-0">
                         <div className="text-xs text-gray-500">Seed {m.seed1} vs Seed {m.seed2 ?? m.seed8}</div>
-                        <div className="font-bold text-white text-sm flex items-center gap-1.5 flex-wrap"><img src={getTeamLogo(m.team1)} alt={m.team1} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /> {m.team1} <span className="text-gray-500 font-normal">vs</span> {m.team2} <img src={getTeamLogo(m.team2)} alt={m.team2} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /></div>
+                        <div className="font-bold text-white text-sm flex items-center gap-1.5 flex-wrap"><img src={getTeamLogo(m.team1)} alt={m.team1} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /> <span className={pm?.winner === m.team1 ? "text-emerald-300" : ""}>{m.team1}{pm?.winner === m.team1 ? " 🏆" : ""}<span className="block text-[11px] font-normal text-gray-400">👤 {owner1 ?? "—"}</span></span> <span className="text-gray-500 font-normal">vs</span> <span className={pm?.winner === m.team2 ? "text-emerald-300" : ""}>{m.team2}{pm?.winner === m.team2 ? " 🏆" : ""}<span className="block text-[11px] font-normal text-gray-400">👤 {owner2 ?? "—"}</span></span> <img src={getTeamLogo(m.team2)} alt={m.team2} loading="lazy" className="w-7 h-7 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} /></div>
+                        {pm?.status === "completed" && pm.winner && (
+                          <div className="text-[11px] text-emerald-400 font-semibold mt-1">Winner: {pm.winner}{pm.winner_user_id && teamOwnerName(pm.winner_user_id, pm.winner) ? ` (${teamOwnerName(pm.winner_user_id, pm.winner)})` : ""}</div>
+                        )}
                       </div>
-                      <span className="text-[10px] px-2 py-1 rounded-full bg-zinc-800 text-gray-400 border border-zinc-700">{m.matchId}</span>
+                      <span className="text-[10px] px-2 py-1 rounded-full bg-zinc-800 text-gray-400 border border-zinc-700 shrink-0">{m.matchId}</span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
+            {/* LATER ROUNDS — rendered from persisted matches */}
+            {laterMatches.length > 0 && (
+              <div className="mt-6 grid lg:grid-cols-3 gap-4">
+                <div className="rounded-xl border border-zinc-700 bg-zinc-950/60 p-4">
+                  <h4 className="font-bold text-white mb-3 text-sm">Semifinals ({semifinalMatches.filter((m) => m.status === "completed").length}/{semifinalMatches.length})</h4>
+                  <div className="space-y-2.5">
+                    {semifinalMatches.length === 0 && <div className="text-xs text-gray-600">Awaiting First Round winners…</div>}
+                    {semifinalMatches.map((m) => (
+                      <div key={m.match_id} className="rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5">
+                        <div className="text-[10px] text-gray-500 mb-1">{m.conference} • {m.match_id}</div>
+                        <div className="text-sm font-bold text-white">{m.team1} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team1_user_id, m.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {m.team2} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team2_user_id, m.team2) ?? "—"}</span></div>
+                        <div className={`text-[11px] mt-1 font-semibold ${m.status === "completed" ? "text-emerald-400" : "text-gray-500"}`}>
+                          {m.status === "completed" ? `🏆 ${m.winner}${m.winner_user_id && teamOwnerName(m.winner_user_id, m.winner) ? ` (${teamOwnerName(m.winner_user_id, m.winner)})` : ""}` : "Scheduled"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-zinc-700 bg-zinc-950/60 p-4">
+                  <h4 className="font-bold text-white mb-3 text-sm">Conference Finals ({confFinalMatches.filter((m) => m.status === "completed").length}/{confFinalMatches.length})</h4>
+                  <div className="space-y-2.5">
+                    {confFinalMatches.length === 0 && <div className="text-xs text-gray-600">Awaiting Semifinal winners…</div>}
+                    {confFinalMatches.map((m) => (
+                      <div key={m.match_id} className="rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5">
+                        <div className="text-[10px] text-gray-500 mb-1">{m.conference} • {m.match_id}</div>
+                        <div className="text-sm font-bold text-white">{m.team1} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team1_user_id, m.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {m.team2} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team2_user_id, m.team2) ?? "—"}</span></div>
+                        <div className={`text-[11px] mt-1 font-semibold ${m.status === "completed" ? "text-emerald-400" : "text-gray-500"}`}>
+                          {m.status === "completed" ? `🏆 ${m.winner}${m.winner_user_id && teamOwnerName(m.winner_user_id, m.winner) ? ` (${teamOwnerName(m.winner_user_id, m.winner)})` : ""}` : "Scheduled"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/[0.03] p-4">
+                  <h4 className="font-bold text-white mb-3 text-sm">Finals</h4>
+                  {!finalMatch && <div className="text-xs text-gray-600">East champ vs West champ — awaiting Conference Finals.</div>}
+                  {finalMatch && (
+                    <div className="rounded-lg border border-yellow-500/20 bg-zinc-900/80 p-2.5">
+                      <div className="text-[10px] text-gray-500 mb-1">East vs West • {finalMatch.match_id}</div>
+                      <div className="text-sm font-bold text-white">{finalMatch.team1} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(finalMatch.team1_user_id, finalMatch.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {finalMatch.team2} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(finalMatch.team2_user_id, finalMatch.team2) ?? "—"}</span></div>
+                      <div className={`text-[11px] mt-1 font-semibold ${finalMatch.status === "completed" ? "text-yellow-300" : "text-gray-500"}`}>
+                        {finalMatch.status === "completed" ? `🏆 Champion: ${finalMatch.winner}${championName ? ` (${championName})` : ""}` : "Scheduled"}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {matches.length > 0 && (
               <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
-                <h4 className="font-bold text-white mb-2 text-sm">Persisted Matches ({matches.length})</h4>
-                <div className="text-xs text-gray-500">First Round matches are saved in <code>tournament_matches</code> — update winners via API to advance.</div>
+                <h4 className="font-bold text-white mb-2 text-sm">Tournament Progress ({matches.filter((m) => m.status === "completed").length}/{matches.length} complete)</h4>
+                <div className="text-xs text-gray-500">Winners are set by admin — each completed game auto-advances the bracket.</div>
               </div>
             )}
           </div>
@@ -522,8 +622,13 @@ export default function NbaPage() {
         <div className="rounded-2xl border border-yellow-500/20 bg-zinc-900/60 backdrop-blur-md p-8 md:p-12 text-center shadow-2xl shadow-yellow-500/5">
           <div className="text-6xl md:text-7xl mb-4">🏆</div>
           <h2 className="text-2xl md:text-3xl font-black text-white mb-3">
-            NBA <span className="text-yellow-400">Champion</span> — TBD
+            NBA <span className="text-yellow-400">Champion</span> — {championTeam ?? "TBD"}{championTeam && championName ? ` (${championName})` : ""}
           </h2>
+          {championTeam && finalMatch?.team1 && (
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <img src={getTeamLogo(championTeam)} alt={championTeam} className="w-10 h-10 object-contain bg-white rounded-full p-1" onError={(e) => ((e.currentTarget.style.display = "none"))} />
+            </div>
+          )}
           <p className="text-gray-300 max-w-xl mx-auto leading-relaxed text-sm">When 16 teams lock, First Round tips off. Win your conference bracket to reach the Finals. May the best team win.</p>
         </div>
       </div>
