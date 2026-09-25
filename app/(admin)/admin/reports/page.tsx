@@ -9,6 +9,7 @@ import {
   Users,
   Trophy,
   ReceiptText,
+  CalendarDays,
 } from "lucide-react";
 
 type BreakdownRow = {
@@ -59,6 +60,31 @@ function todayISO(): string {
 function monthStartISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+// Day 1 = Sept 4, 2026 (system launch). Counter is fixed to today, ignores from/to filter.
+const LAUNCH_DATE_ISO = "2026-09-04";
+const LAUNCH_DAY = 4;
+
+function parseLocalMidnight(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function daysSinceLaunch(today = new Date()): number {
+  const launch = parseLocalMidnight(LAUNCH_DATE_ISO);
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const diffMs = todayMidnight.getTime() - launch.getTime();
+  return Math.max(1, Math.floor(diffMs / 86400000) + 1);
+}
+
+function monthsSinceLaunch(today = new Date()): number {
+  const launch = parseLocalMidnight(LAUNCH_DATE_ISO);
+  let months =
+    (today.getFullYear() - launch.getFullYear()) * 12 +
+    (today.getMonth() - launch.getMonth());
+  if (today.getDate() < LAUNCH_DAY) months -= 1;
+  return Math.max(1, months + 1);
 }
 
 export default function IncomeReports() {
@@ -149,6 +175,9 @@ export default function IncomeReports() {
 
   const totalIncome = (summary?.total_loaded ?? 0) - (summary?.total_deducted ?? 0);
 
+  const dayCount = daysSinceLaunch();
+  const monthCount = monthsSinceLaunch();
+
   const cards = [
     {
       label: "Total Income",
@@ -194,6 +223,12 @@ export default function IncomeReports() {
             <p className="text-xs text-zinc-500 mt-0.5">
               Gfunds loaded &amp; deducted by admins • Excludes test accounts (test, test2 – test5)
             </p>
+            <div className="mt-2 inline-flex items-center gap-1.5 bg-purple-500/10 border border-white/5 rounded-full px-3 py-1 text-xs font-semibold text-purple-300">
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>
+                Day {dayCount} • Month {monthCount} since launch (Sept 4, 2026)
+              </span>
+            </div>
           </div>
           <button
             onClick={fetchReport}
