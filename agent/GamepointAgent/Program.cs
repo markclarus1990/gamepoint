@@ -2228,18 +2228,35 @@ try
 
         private void ShowPayment()
         {
-            _lblResume.Visible = _resumeSeconds > 0;
-            _btnResume.Visible = _resumeSeconds > 0;
-            _lblCredit.Visible = _creditMinutes > 0;
-            _btnCredit.Visible = _creditMinutes > 0;
+            // Resume now merges any stranded shared time server-side, so when
+            // both exist we present a single combined Resume option instead of
+            // forcing the player to pick one and lose the other.
+            var hasResume = _resumeSeconds > 0;
+            var hasCredit = _creditMinutes > 0;
+            var resumeIncludesCredit = hasResume && hasCredit;
 
-            if (_resumeSeconds > 0)
+            _lblResume.Visible = hasResume;
+            _btnResume.Visible = hasResume;
+            _lblCredit.Visible = hasCredit;
+            _btnCredit.Visible = hasCredit && !hasResume;
+
+            if (hasResume)
             {
                 var mins = (int)Math.Ceiling(_resumeSeconds / 60.0);
-                _lblResume.Text = $"Saved time: {FmtMinutes(mins)} left from your last session";
-                _btnResume.Text = $"Resume Session — {FmtMinutes(mins)}";
+                if (resumeIncludesCredit)
+                {
+                    var totalMins = mins + _creditMinutes;
+                    _lblResume.Text = $"Saved time: {FmtMinutes(mins)} + {FmtMinutes(_creditMinutes)} shared time = {FmtMinutes(totalMins)} total";
+                    _btnResume.Text = $"Resume Session — {FmtMinutes(totalMins)} (incl. shared)";
+                    _lblCredit.Text = $"Shared time: {FmtMinutes(_creditMinutes)} will be added automatically when you resume";
+                }
+                else
+                {
+                    _lblResume.Text = $"Saved time: {FmtMinutes(mins)} left from your last session";
+                    _btnResume.Text = $"Resume Session — {FmtMinutes(mins)}";
+                }
             }
-            if (_creditMinutes > 0)
+            if (hasCredit && !hasResume)
             {
                 _lblCredit.Text = $"Shared time: {FmtMinutes(_creditMinutes)} received from another player";
                 _btnCredit.Text = $"Continue with Shared Time — {FmtMinutes(_creditMinutes)}";
@@ -2256,7 +2273,7 @@ try
             _lblResume.Visible = _resumeSeconds > 0;
             _btnResume.Visible = _resumeSeconds > 0;
             _lblCredit.Visible = _creditMinutes > 0;
-            _btnCredit.Visible = _creditMinutes > 0;
+            _btnCredit.Visible = _creditMinutes > 0 && _resumeSeconds <= 0;
             LayoutPaymentPanel();
             Activate();
             Dbg($"ShowPayment login={PanelState(_loginPanel)} pay={PanelState(_paymentPanel)} user={( _user is null ? "null" : _user.Name )}");
@@ -2281,6 +2298,10 @@ try
                     return;
                 }
                 var remaining = data.TryGetProperty("remaining_seconds", out var rs) ? rs.GetInt32() : _resumeSeconds;
+                // Resume merges stranded shared time server-side — clear local
+                // copies so a later Add Time dialog doesn't offer stale credit.
+                _resumeSeconds = 0;
+                _creditMinutes = 0;
                 _loginPanel.Visible = false;
                 _paymentPanel.Visible = false;
                 _controller.UnlockSession(remaining, _user.Name);
@@ -2321,6 +2342,8 @@ try
                 }
                 _loginPanel.Visible = false;
                 _paymentPanel.Visible = false;
+                _resumeSeconds = 0;
+                _creditMinutes = 0;
                 _controller.UnlockSession(data?.RemainingSeconds ?? 0, _user.Name);
                 _lblStartError.Text = "";
                 Activate();
@@ -2346,8 +2369,11 @@ try
             if (_resumeSeconds > 0)
             {
                 var mins = (int)Math.Ceiling(_resumeSeconds / 60.0);
+                var extra = _creditMinutes > 0
+                    ? $" Your {FmtMinutes(_creditMinutes)} shared time will still be included."
+                    : "";
                 var confirm = MessageBox.Show(
-                    $"Starting a new session discards your saved {FmtMinutes(mins)}. Continue?",
+                    $"Starting a new session discards your saved {FmtMinutes(mins)}.{extra} Continue?",
                     "Start Session",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question);
@@ -2377,6 +2403,10 @@ try
                 }
 
                 _controller.UnlockSession(data?.RemainingSeconds ?? 0, _user.Name);
+                // New purchases merge stranded shared time server-side and a new
+                // start discards paused time — clear local copies on success.
+                _resumeSeconds = 0;
+                _creditMinutes = 0;
                 _lblStartError.Text = "";
             }
             catch
@@ -2949,36 +2979,47 @@ try
         private readonly ControllerForm _controller;
         private readonly Button _btnPoints;
         private readonly Button _btnGfunds;
+        private readonly Button _btnShared;
         private readonly FlowLayoutPanel _amountPanel;
+        private readonly Label _lblAmount;
         private readonly Label _lblTime;
         private readonly Label _lblError;
         private readonly Button _btnSave;
         private NumericUpDown? _numCustom;
         private string _payment = "points";
         private int _selectedAmount;
+        private int _sharedMinutes;
 
         public AddTimeForm(ControllerForm controller)
         {
             _controller = controller;
+            _sharedMinutes = controller.CurrentTimeCredit ?? 0;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterParent;
             BackColor = C(COLOR_BG);
-            Size = new Size(320, 390);
+            Size = new Size(320, 430);
             TopMost = true;
 
             var title = DarkLabel("Add Time", 16, Color.White, true);
+            var sharedSuffix = _sharedMinutes > 0 ? $" • {_sharedMinutes} free min" : "";
             var lblBalances = DarkLabel(
-                $"₱{controller.CurrentGfunds ?? 0} gfunds • {controller.CurrentPoints ?? 0} pts",
+                $"₱{controller.CurrentGfunds ?? 0} gfunds • {controller.CurrentPoints ?? 0} pts{sharedSuffix}",
                 10,
                 Color.FromArgb(170, 170, 185));
             var lblPayWith = DarkLabel("Pay with:", 10, Color.FromArgb(160, 160, 175));
             _btnPoints = DarkButton("Gamepoints", COLOR_ACCENT);
             _btnGfunds = DarkButton("Gfunds", COLOR_INPUT);
+            _btnShared = DarkButton(
+                _sharedMinutes > 0 ? $"Shared Time ({FmtMinutes(_sharedMinutes)})" : "Shared Time",
+                COLOR_INPUT);
             RoundButton(_btnPoints, 10);
             RoundButton(_btnGfunds, 10);
+            RoundButton(_btnShared, 10);
             _btnPoints.Click += (_, _) => SetPayment("points");
             _btnGfunds.Click += (_, _) => SetPayment("gfunds");
-            var lblAmount = DarkLabel("Amount:", 10, Color.FromArgb(160, 160, 175));
+            _btnShared.Click += (_, _) => SetPayment("shared");
+            _btnShared.Visible = _sharedMinutes > 0;
+            _lblAmount = DarkLabel("Amount:", 10, Color.FromArgb(160, 160, 175));
             _amountPanel = new FlowLayoutPanel
             {
                 FlowDirection = FlowDirection.LeftToRight,
@@ -3003,16 +3044,18 @@ try
             _btnPoints.Size = new Size(136, 36);
             _btnGfunds.Location = new Point(164, 100);
             _btnGfunds.Size = new Size(136, 36);
-            lblAmount.Location = new Point(20, 148);
-            _amountPanel.Location = new Point(20, 168);
-            _lblTime.Location = new Point(20, 262);
-            _lblError.Location = new Point(20, 288);
-            _btnSave.Location = new Point(20, 336);
+            _btnShared.Location = new Point(20, 142);
+            _btnShared.Size = new Size(280, 36);
+            _lblAmount.Location = new Point(20, 188);
+            _amountPanel.Location = new Point(20, 208);
+            _lblTime.Location = new Point(20, 302);
+            _lblError.Location = new Point(20, 328);
+            _btnSave.Location = new Point(20, 376);
             _btnSave.Size = new Size(180, 40);
-            btnCancel.Location = new Point(210, 336);
+            btnCancel.Location = new Point(210, 376);
             btnCancel.Size = new Size(90, 40);
 
-            Controls.AddRange(new Control[] { title, lblBalances, lblPayWith, _btnPoints, _btnGfunds, lblAmount, _amountPanel, _lblTime, _lblError, _btnSave, btnCancel });
+            Controls.AddRange(new Control[] { title, lblBalances, lblPayWith, _btnPoints, _btnGfunds, _btnShared, _lblAmount, _amountPanel, _lblTime, _lblError, _btnSave, btnCancel });
 
             SetPayment("points");
         }
@@ -3025,8 +3068,22 @@ try
             _lblError.Text = "";
             _btnPoints.BackColor = payment == "points" ? C(COLOR_ACCENT) : C(COLOR_INPUT);
             _btnGfunds.BackColor = payment == "gfunds" ? C(COLOR_GREEN) : C(COLOR_INPUT);
+            _btnShared.BackColor = payment == "shared" ? C("#0d9488") : C(COLOR_INPUT);
 
             _amountPanel.Controls.Clear();
+            if (payment == "shared")
+            {
+                _sharedMinutes = _controller.CurrentTimeCredit ?? _sharedMinutes;
+                _lblAmount.Text = "Shared time:";
+                _lblTime.Text = _sharedMinutes > 0
+                    ? $"{FmtMinutes(_sharedMinutes)} shared time — adds all at once"
+                    : "No shared time available";
+                _btnSave.Text = "Add Shared Time";
+                return;
+            }
+
+            _lblAmount.Text = "Amount:";
+            _btnSave.Text = "Add Time";
             var amounts = payment == "points" ? new[] { 20, 40, 60, 100 } : new[] { 10, 20, 50 };
             foreach (var a in amounts)
             {
@@ -3078,6 +3135,44 @@ try
             if (string.IsNullOrEmpty(userId))
             {
                 _lblError.Text = "No player signed in";
+                return;
+            }
+            if (_payment == "shared")
+            {
+                var credit = _controller.CurrentTimeCredit ?? _sharedMinutes;
+                if (credit <= 0)
+                {
+                    _lblError.Text = "No shared time available";
+                    return;
+                }
+
+                _lblError.Text = "Adding shared time...";
+                _btnSave.Enabled = false;
+                try
+                {
+                    using var creditResp = await _controller.Http.PostAsJsonAsync("api/sessions/add-time", new
+                    {
+                        user_id = userId,
+                        station_name = _controller.StationName,
+                        payment = "credit"
+                    });
+                    var creditJson = await creditResp.Content.ReadFromJsonAsync<JsonElement>();
+                    if (creditJson.TryGetProperty("error", out var creditErr))
+                    {
+                        _lblError.Text = creditErr.GetString() ?? "Failed to add time";
+                        return;
+                    }
+                    DialogResult = DialogResult.OK;
+                    Close();
+                }
+                catch
+                {
+                    _lblError.Text = "Cannot reach the server";
+                }
+                finally
+                {
+                    _btnSave.Enabled = true;
+                }
                 return;
             }
             if (_selectedAmount <= 0)

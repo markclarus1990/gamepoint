@@ -263,7 +263,7 @@ export class SessionService {
   async addTime(params: {
     userId: string;
     stationName: string;
-    payment: "points" | "gfunds";
+    payment: "points" | "gfunds" | "credit";
     points?: number;
     gfunds?: number;
   }): Promise<
@@ -290,8 +290,14 @@ export class SessionService {
     let minutes = 0;
     let pointsUsed = 0;
     let gfundsUsed = 0;
+    const creditMinutes = user.time_credit_minutes ?? 0;
 
-    if (payment === "points") {
+    if (payment === "credit") {
+      if (creditMinutes <= 0) {
+        return { error: "No shared time available" };
+      }
+      minutes = creditMinutes;
+    } else if (payment === "points") {
       const pts = params.points ?? 0;
       if (!Number.isInteger(pts) || pts <= 0 || pts % POINTS_PER_REDEEM !== 0) {
         return { error: `Points must be a multiple of ${POINTS_PER_REDEEM}` };
@@ -322,11 +328,15 @@ export class SessionService {
 
     try {
       await this.sessionRepo.updateEndsAt(active.id, newEndsAt.toISOString());
-      await this.userRepo.updatePointsById(userId, user.points - pointsUsed);
-      await this.userRepo.updateGfundsById(
-        userId,
-        (user.gfunds || 0) - gfundsUsed
-      );
+      if (payment === "credit") {
+        await this.userRepo.clearTimeCredit(userId);
+      } else {
+        await this.userRepo.updatePointsById(userId, user.points - pointsUsed);
+        await this.userRepo.updateGfundsById(
+          userId,
+          (user.gfunds || 0) - gfundsUsed
+        );
+      }
 
       return {
         success: true,
@@ -338,6 +348,7 @@ export class SessionService {
           ...user,
           points: user.points - pointsUsed,
           gfunds: (user.gfunds || 0) - gfundsUsed,
+          time_credit_minutes: payment === "credit" ? 0 : creditMinutes,
         },
       };
     } catch (err: unknown) {
@@ -565,7 +576,7 @@ export class SessionService {
     stationName: string,
     agentKey?: string | null
   ): Promise<
-    | { success: true; remaining_seconds: number }
+    | { success: true; remaining_seconds: number; credit_merged?: number }
     | { error: string }
   > {
     await this.sessionRepo.expireOverdue();
@@ -603,10 +614,23 @@ export class SessionService {
       };
     }
 
-    await this.sessionRepo.discardPausedForUser(userId);
-    await this.sessionRepo.resumeSession(paused.id, stationName, seconds);
+    // Merge any stranded shared time (sent while offline) into the resume
+    // so the player doesn't have to choose between saved time and shared time.
+    const resumeUser = await this.userRepo.findById(userId);
+    const creditMinutes = resumeUser?.time_credit_minutes ?? 0;
+    const totalSeconds = seconds + Math.max(0, creditMinutes) * 60;
 
-    return { success: true, remaining_seconds: seconds };
+    await this.sessionRepo.discardPausedForUser(userId);
+    await this.sessionRepo.resumeSession(paused.id, stationName, totalSeconds);
+    if (creditMinutes > 0) {
+      await this.userRepo.clearTimeCredit(userId);
+    }
+
+    return {
+      success: true,
+      remaining_seconds: totalSeconds,
+      ...(creditMinutes > 0 ? { credit_merged: creditMinutes } : {}),
+    };
   }
 
   async getActiveForUser(

@@ -46,5 +46,14 @@ export async function POST(req: Request) {
     remaining_seconds: result.remaining_seconds,
   });
 
+  if ("credit_merged" in result && result.credit_merged && result.credit_merged > 0) {
+    void activityLog.logCreditConsume(
+      actorName,
+      station_name,
+      result.credit_merged,
+      result.remaining_seconds
+    );
+  }
+
   return Response.json(result);
 }
