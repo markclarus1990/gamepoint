@@ -2508,7 +2508,7 @@ try
             _btnLogout.Click += async (_, _) => await LogoutAsync();
             _btnAddTime = new Button
             {
-                Text = "Add Time",
+                Text = "Time only",
                 FlatStyle = FlatStyle.Flat,
                 BackColor = C(COLOR_ACCENT),
                 ForeColor = Color.White,
@@ -3000,7 +3000,7 @@ try
             Size = new Size(320, 430);
             TopMost = true;
 
-            var title = DarkLabel("Add Time", 16, Color.White, true);
+            var title = DarkLabel("Time only", 16, Color.White, true);
             var sharedSuffix = _sharedMinutes > 0 ? $" • {_sharedMinutes} free min" : "";
             var lblBalances = DarkLabel(
                 $"₱{controller.CurrentGfunds ?? 0} gfunds • {controller.CurrentPoints ?? 0} pts{sharedSuffix}",
@@ -3030,7 +3030,7 @@ try
             _lblTime = DarkLabel("", 12, C(COLOR_GREEN), true);
             _lblError = DarkLabel("", 10, C(COLOR_ERROR));
             _lblError.MaximumSize = new Size(280, 40);
-            _btnSave = DarkButton("Add Time", COLOR_ACCENT);
+            _btnSave = DarkButton("Time only", COLOR_ACCENT);
             MakeGradientButton(_btnSave);
             _btnSave.Click += async (_, _) => await ConfirmAsync();
             var btnCancel = DarkButton("Cancel", "#334155");
@@ -3083,7 +3083,7 @@ try
             }
 
             _lblAmount.Text = "Amount:";
-            _btnSave.Text = "Add Time";
+            _btnSave.Text = "Time only";
             var amounts = payment == "points" ? new[] { 20, 40, 60, 100 } : new[] { 10, 20, 50 };
             foreach (var a in amounts)
             {
