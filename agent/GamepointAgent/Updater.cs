@@ -248,7 +248,9 @@ internal sealed class Updater
             // leaving a truncated file whose version resource reads empty
             // (NoVersion). Those MUST be retried. Only a version mismatch
             // (right file, wrong version) is a hard failure.
-            const int maxAttempts = 3;
+            // Partial files are RESUMED via HTTP Range (not re-downloaded),
+            // so an 84MB file missing 2KB completes on the next attempt.
+            const int maxAttempts = 5;
             long received = 0;
             long? declared = null;
             string? receivedSha = null;
@@ -260,12 +262,17 @@ internal sealed class Updater
                 ct.ThrowIfCancellationRequested();
                 if (attempt > 1)
                 {
+                    // Exponential backoff: 5s, 10s, 20s, 40s — flaky cafe
+                    // networks need longer to recover between attempts.
+                    var backoff = TimeSpan.FromSeconds(Math.Min(40, 5 * (1 << (attempt - 2))));
+                    var existingBytes = SafeFileLength(newExe);
+                    var resumeNote = existingBytes > 0 ? $" resuming from {existingBytes} bytes" : "";
                     status?.Invoke($"Retrying download ({attempt}/{maxAttempts})...");
-                    ProgramDbg($"[DOWNLOAD] retry attempt={attempt}/{maxAttempts} url={downloadUrl}");
-                    // Delete the partial file BEFORE retrying so a corrupt
-                    // exe can never be mistaken for a good download.
-                    try { if (File.Exists(newExe)) File.Delete(newExe); } catch (Exception ex) { ProgramDbg($"[DOWNLOAD] cleanup before retry failed: {ex.Message}"); }
-                    await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                    ProgramDbg($"[DOWNLOAD] retry attempt={attempt}/{maxAttempts} url={downloadUrl} backoff={backoff.TotalSeconds}s{resumeNote}");
+                    // Keep the partial file: DownloadOnceAsync resumes it via
+                    // HTTP Range. Only corrupt content (SHA mismatch) is
+                    // deleted, handled in the catch block below.
+                    await Task.Delay(backoff, ct);
                 }
                 try
                 {
@@ -299,8 +306,15 @@ internal sealed class Updater
                 {
                     lastRetryable = ex;
                     ProgramDbg($"[DOWNLOAD] attempt {attempt}/{maxAttempts} failed: {ex.Message}");
-                    // Ensure the bad partial is gone before the next attempt.
-                    try { if (attempt < maxAttempts && File.Exists(newExe)) File.Delete(newExe); } catch { }
+                    // Corrupt bytes (SHA mismatch / tiny error page) can never
+                    // be fixed by resuming — restart fresh next attempt.
+                    // Truncated streams (incomplete/size mismatch) keep the
+                    // partial so the next attempt resumes via Range.
+                    if (IsCorruptContent(ex.Message))
+                    {
+                        try { if (File.Exists(newExe)) File.Delete(newExe); } catch { }
+                        ProgramDbg($"[DOWNLOAD] discarded corrupt partial, next attempt restarts from 0");
+                    }
                 }
             }
             if (!verified)
@@ -551,9 +565,13 @@ internal sealed class Updater
     }
 
     /// <summary>
-    /// Single download attempt. Throws on HTTP errors, tiny files (likely
-    /// error pages), and truncated transfers (fewer bytes than Content-Length
-    /// declares). The caller retries via the attempt loop above.
+    /// Single download attempt with Range-resume. If a previous attempt left
+    /// a partial file, sends `Range: bytes=&lt;existing&gt;-` and appends the
+    /// remainder instead of re-downloading from scratch. Servers that ignore
+    /// Range (200 instead of 206) fall back to a full download. Throws on
+    /// HTTP errors, tiny files (likely error pages), and truncated transfers
+    /// (fewer bytes than Content-Length declares). The caller retries via
+    /// the attempt loop above.
     /// </summary>
     private async Task<(long received, long? declared)> DownloadOnceAsync(
         string downloadUrl,
@@ -562,8 +580,7 @@ internal sealed class Updater
         Action<string>? status,
         CancellationToken ct)
     {
-        // Clean previous attempt
-        if (File.Exists(newExe)) File.Delete(newExe);
+        var existing = SafeFileLength(newExe);
 
         using var dlReq = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
         dlReq.Headers.Add("User-Agent", "GamepointAgent-Updater");
@@ -572,6 +589,8 @@ internal sealed class Updater
         {
             dlReq.Headers.Add("Authorization", $"Bearer {_githubToken}");
         }
+        if (existing > 0)
+            dlReq.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existing, null);
         // For GitHub release asset browser_download_url from private repo, the URL redirects
         // and already contains an auth token query — no header needed. But adding it is harmless.
 
@@ -584,19 +603,41 @@ internal sealed class Updater
         }
 
         using var resp = await dlClient.SendAsync(dlReq, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            // Partial is already complete (or longer) per the server — let
+            // verification decide; it compares against expected size/SHA.
+            var fiDone = new FileInfo(newExe);
+            ProgramDbg($"[DOWNLOAD] server reports range unsatisfiable, keeping {fiDone.Length} bytes for verification");
+            return (fiDone.Length, fiDone.Length);
+        }
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
             throw new Exception($"Download HTTP {(int)resp.StatusCode}: {body.Substring(0, Math.Min(300, body.Length))}");
         }
 
-        var total = resp.Content.Headers.ContentLength;
+        // 206 = server honors resume (Content-Length = remaining bytes);
+        // 200 = server ignored Range, restream the whole file from scratch.
+        var resumed = resp.StatusCode == System.Net.HttpStatusCode.PartialContent && existing > 0;
+        if (!resumed && existing > 0)
+        {
+            ProgramDbg($"[DOWNLOAD] server ignored Range (HTTP {(int)resp.StatusCode}), restarting from 0");
+            existing = 0;
+        }
+
+        var remaining = resp.Content.Headers.ContentLength;
+        // Declared total = bytes already on disk + bytes this response carries.
+        // For a fresh download existing=0 so declared == Content-Length.
+        long? total = remaining.HasValue ? existing + remaining.Value : (long?)null;
         await using var netStream = await resp.Content.ReadAsStreamAsync(ct);
-        await using var fileStream = new FileStream(newExe, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+        await using var fileStream = new FileStream(newExe, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
         var buf = new byte[81920];
-        long readTotal = 0;
+        long readTotal = existing;
         int n;
         var lastPct = -1;
+        if (existing > 0 && total.HasValue && total.Value > 0)
+            ProgramDbg($"[DOWNLOAD] resuming at {existing} of {total.Value} bytes ({existing * 100 / total.Value}%)");
         while ((n = await netStream.ReadAsync(buf, 0, buf.Length, ct)) > 0)
         {
             await fileStream.WriteAsync(buf, 0, n, ct);
@@ -618,6 +659,28 @@ internal sealed class Updater
         if (total.HasValue && total.Value > 0 && fi.Length != total.Value)
             throw new Exception($"Incomplete download: received {fi.Length} of {total.Value} bytes — network may have dropped. Will retry.");
         return (fi.Length, total);
+    }
+
+    private static long SafeFileLength(string path)
+    {
+        try
+        {
+            var fi = new FileInfo(path);
+            return fi.Exists ? fi.Length : 0;
+        }
+        catch { return 0; }
+    }
+
+    /// <summary>
+    /// True when the failure means the bytes on disk are corrupt (wrong
+    /// content), not merely short — resuming would append good bytes to bad
+    /// ones, so the partial must be deleted and the next attempt restarts.
+    /// </summary>
+    internal static bool IsCorruptContent(string message)
+    {
+        return message.Contains("SHA-256 mismatch", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("too small", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("HTML error page", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string NormalizeVersion(string v)
