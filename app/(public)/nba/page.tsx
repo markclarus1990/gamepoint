@@ -615,9 +615,9 @@ export default function NbaPage() {
                       return (
                       <div key={m.match_id} className="rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5">
                         <div className="text-[10px] text-gray-500 mb-1">{m.conference} • {m.match_id}{gl.length > 0 && <span className="text-gray-300 font-bold"> · {sc.wins1}–{sc.wins2}</span>}</div>
-                        <div className="text-sm font-bold text-white">{m.team1} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team1_user_id, m.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {m.team2} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team2_user_id, m.team2) ?? "—"}</span></div>
+                        <div className="text-sm font-bold text-white">{m.team1 ?? "TBD"} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team1_user_id, m.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {m.team2 ?? "TBD"} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team2_user_id, m.team2) ?? "—"}</span></div>
                         <div className={`text-[11px] mt-1 font-semibold ${m.status === "completed" ? "text-emerald-400" : "text-gray-500"}`}>
-                          {m.status === "completed" ? `🏆 ${m.winner}${m.winner_user_id && teamOwnerName(m.winner_user_id, m.winner) ? ` (${teamOwnerName(m.winner_user_id, m.winner)})` : ""}${gl.length > 0 ? ` ${sc.wins1}–${sc.wins2}` : ""}` : "Scheduled"}
+                          {m.status === "completed" ? `🏆 ${m.winner}${m.winner_user_id && teamOwnerName(m.winner_user_id, m.winner) ? ` (${teamOwnerName(m.winner_user_id, m.winner)})` : ""}${gl.length > 0 ? ` ${sc.wins1}–${sc.wins2}` : ""}` : (!m.team1 || !m.team2) ? "⏳ Awaiting opponent…" : "Scheduled"}
                         </div>
                         {gl.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
@@ -643,9 +643,9 @@ export default function NbaPage() {
                       return (
                       <div key={m.match_id} className="rounded-lg border border-zinc-800 bg-zinc-900/80 p-2.5">
                         <div className="text-[10px] text-gray-500 mb-1">{m.conference} • {m.match_id}{gl.length > 0 && <span className="text-gray-300 font-bold"> · {sc.wins1}–{sc.wins2}</span>}</div>
-                        <div className="text-sm font-bold text-white">{m.team1} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team1_user_id, m.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {m.team2} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team2_user_id, m.team2) ?? "—"}</span></div>
+                        <div className="text-sm font-bold text-white">{m.team1 ?? "TBD"} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team1_user_id, m.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {m.team2 ?? "TBD"} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(m.team2_user_id, m.team2) ?? "—"}</span></div>
                         <div className={`text-[11px] mt-1 font-semibold ${m.status === "completed" ? "text-emerald-400" : "text-gray-500"}`}>
-                          {m.status === "completed" ? `🏆 ${m.winner}${m.winner_user_id && teamOwnerName(m.winner_user_id, m.winner) ? ` (${teamOwnerName(m.winner_user_id, m.winner)})` : ""}${gl.length > 0 ? ` ${sc.wins1}–${sc.wins2}` : ""}` : "Scheduled"}
+                          {m.status === "completed" ? `🏆 ${m.winner}${m.winner_user_id && teamOwnerName(m.winner_user_id, m.winner) ? ` (${teamOwnerName(m.winner_user_id, m.winner)})` : ""}${gl.length > 0 ? ` ${sc.wins1}–${sc.wins2}` : ""}` : (!m.team1 || !m.team2) ? "⏳ Awaiting opponent…" : "Scheduled"}
                         </div>
                         {gl.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
@@ -667,9 +667,9 @@ export default function NbaPage() {
                   {finalMatch && (
                     <div className="rounded-lg border border-yellow-500/20 bg-zinc-900/80 p-2.5">
                       <div className="text-[10px] text-gray-500 mb-1">East vs West • {finalMatch.match_id}{(gamesByMatch.get(finalMatch.match_id) || []).length > 0 && <span className="text-gray-300 font-bold"> · {seriesScore(finalMatch).wins1}–{seriesScore(finalMatch).wins2}</span>}</div>
-                      <div className="text-sm font-bold text-white">{finalMatch.team1} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(finalMatch.team1_user_id, finalMatch.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {finalMatch.team2} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(finalMatch.team2_user_id, finalMatch.team2) ?? "—"}</span></div>
+                      <div className="text-sm font-bold text-white">{finalMatch.team1 ?? "TBD"} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(finalMatch.team1_user_id, finalMatch.team1) ?? "—"}</span> <span className="text-gray-500 font-normal">vs</span> {finalMatch.team2 ?? "TBD"} <span className="text-xs font-normal text-gray-400">👤 {teamOwnerName(finalMatch.team2_user_id, finalMatch.team2) ?? "—"}</span></div>
                       <div className={`text-[11px] mt-1 font-semibold ${finalMatch.status === "completed" ? "text-yellow-300" : "text-gray-500"}`}>
-                        {finalMatch.status === "completed" ? `🏆 Champion: ${finalMatch.winner}${championName ? ` (${championName})` : ""}` : "Scheduled"}
+                        {finalMatch.status === "completed" ? `🏆 Champion: ${finalMatch.winner}${championName ? ` (${championName})` : ""}` : (!finalMatch.team1 || !finalMatch.team2) ? "⏳ Awaiting opponent…" : "Scheduled"}
                       </div>
                       {(gamesByMatch.get(finalMatch.match_id) || []).length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">

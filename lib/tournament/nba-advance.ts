@@ -236,39 +236,40 @@ export function computeNextRoundUpserts(all: NbaMatchRow[]) {
     const m3v6 = map.get(id3v6);
     const m2v7 = map.get(id2v7);
 
-    // Semifinals need both source winners
+    // Semifinals populate as soon as EITHER feeder is decided —
+    // the missing side stays null (TBD) until its series completes.
     const w1v8 = m1v8 ? winnerOf(m1v8) : null;
     const w4v5 = m4v5 ? winnerOf(m4v5) : null;
     const w3v6 = m3v6 ? winnerOf(m3v6) : null;
     const w2v7 = m2v7 ? winnerOf(m2v7) : null;
 
-    if (w1v8 && w4v5) {
+    if (w1v8 || w4v5) {
       upserts.push({
         match_id: sf1Id,
         tournament_type: "nba",
         round: "Semifinals",
         conference: conf,
-        seed1: w1v8.seed,
-        seed2: w4v5.seed,
-        team1: w1v8.team,
-        team2: w4v5.team,
-        team1_user_id: w1v8.user_id,
-        team2_user_id: w4v5.user_id,
+        seed1: w1v8?.seed ?? null,
+        seed2: w4v5?.seed ?? null,
+        team1: w1v8?.team ?? null,
+        team2: w4v5?.team ?? null,
+        team1_user_id: w1v8?.user_id ?? null,
+        team2_user_id: w4v5?.user_id ?? null,
         status: "scheduled",
       });
     }
-    if (w3v6 && w2v7) {
+    if (w3v6 || w2v7) {
       upserts.push({
         match_id: sf2Id,
         tournament_type: "nba",
         round: "Semifinals",
         conference: conf,
-        seed1: w3v6.seed,
-        seed2: w2v7.seed,
-        team1: w3v6.team,
-        team2: w2v7.team,
-        team1_user_id: w3v6.user_id,
-        team2_user_id: w2v7.user_id,
+        seed1: w3v6?.seed ?? null,
+        seed2: w2v7?.seed ?? null,
+        team1: w3v6?.team ?? null,
+        team2: w2v7?.team ?? null,
+        team1_user_id: w3v6?.user_id ?? null,
+        team2_user_id: w2v7?.user_id ?? null,
         status: "scheduled",
       });
     }
@@ -277,40 +278,40 @@ export function computeNextRoundUpserts(all: NbaMatchRow[]) {
     const sf2 = map.get(sf2Id);
     const wSf1 = sf1 ? winnerOf(sf1) : null;
     const wSf2 = sf2 ? winnerOf(sf2) : null;
-    if (wSf1 && wSf2) {
+    if (wSf1 || wSf2) {
       upserts.push({
         match_id: cfId,
         tournament_type: "nba",
         round: "Conference Finals",
         conference: conf,
-        seed1: wSf1.seed,
-        seed2: wSf2.seed,
-        team1: wSf1.team,
-        team2: wSf2.team,
-        team1_user_id: wSf1.user_id,
-        team2_user_id: wSf2.user_id,
+        seed1: wSf1?.seed ?? null,
+        seed2: wSf2?.seed ?? null,
+        team1: wSf1?.team ?? null,
+        team2: wSf2?.team ?? null,
+        team1_user_id: wSf1?.user_id ?? null,
+        team2_user_id: wSf2?.user_id ?? null,
         status: "scheduled",
       });
     }
   }
 
-  // Finals: needs both conference champions
+  // Finals: populate as soon as EITHER conference champion is known
   const eastCf = map.get(CF_ID("East"));
   const westCf = map.get(CF_ID("West"));
   const wEast = eastCf ? winnerOf(eastCf) : null;
   const wWest = westCf ? winnerOf(westCf) : null;
-  if (wEast && wWest) {
+  if (wEast || wWest) {
     upserts.push({
       match_id: FINAL_ID,
       tournament_type: "nba",
       round: "Finals",
       conference: null,
-      seed1: wEast.seed,
-      seed2: wWest.seed,
-      team1: wEast.team,
-      team2: wWest.team,
-      team1_user_id: wEast.user_id,
-      team2_user_id: wWest.user_id,
+      seed1: wEast?.seed ?? null,
+      seed2: wWest?.seed ?? null,
+      team1: wEast?.team ?? null,
+      team2: wWest?.team ?? null,
+      team1_user_id: wEast?.user_id ?? null,
+      team2_user_id: wWest?.user_id ?? null,
       status: "scheduled",
     });
   }
@@ -421,7 +422,19 @@ export async function advanceBracket(
       continue;
     }
     if (existing) {
-      // Refresh participants on scheduled downstream (team change via override)
+      // Skip rows whose participants are already correct — otherwise every
+      // unrelated advance would wipe this row's homecourt toss + scheduled games.
+      const wr = w as Record<string, unknown>;
+      const same =
+        existing.team1 === (wr.team1 as string | null) &&
+        existing.team2 === (wr.team2 as string | null) &&
+        (existing.team1_user_id ?? null) === (wr.team1_user_id as string | null) &&
+        (existing.team2_user_id ?? null) === (wr.team2_user_id as string | null) &&
+        (existing.seed1 ?? null) === (wr.seed1 as number | null) &&
+        (existing.seed2 ?? null) === (wr.seed2 as number | null);
+      if (same) continue;
+      // Refresh participants on scheduled downstream (team change via override,
+      // or a second feeder filling the TBD slot of a partial row)
       const { error } = await db
         .from("tournament_matches")
         .update({
@@ -485,22 +498,55 @@ export async function resetMatchAndDownstream(
       deletedStale.push(dId);
     }
   }
-  // For scheduled downstream, recompute after the reset; stale participant rows
-  // get cleaned on next advance. Direct child scheduled rows that can no longer
-  // be computed (missing winner) are deleted to avoid ghost matchups.
+  // For scheduled downstream, recompute after the reset and sync participants
+  // immediately (no advance fires after a reset). Rows with no remaining
+  // known participant are deleted to avoid ghost matchups; rows that keep
+  // one side (partial) are updated back to TBD on the cleared slot, with
+  // any toss/games for the stale pairing wiped.
   const { data: after } = await db
     .from("tournament_matches")
     .select("*")
     .eq("tournament_type", "nba");
   const fresh = ((after as NbaMatchRow[]) || []).filter(Boolean);
   const wanted = computeNextRoundUpserts(fresh);
-  const wantedIds = new Set(wanted.map((w) => (w as { match_id: string }).match_id));
+  const wantedById = new Map(wanted.map((w) => [(w as { match_id: string }).match_id, w]));
   for (const dId of downstream) {
     const exists = fresh.find((x) => x.match_id === dId);
-    if (exists && exists.status !== "completed" && !wantedIds.has(dId)) {
+    if (!exists || exists.status === "completed") continue;
+    const want = wantedById.get(dId) as Record<string, unknown> | undefined;
+    if (!want) {
       await db.from("tournament_matches").delete().eq("match_id", dId);
       updatedDownstream.push(dId);
+      continue;
     }
+    const same =
+      exists.team1 === (want.team1 as string | null) &&
+      exists.team2 === (want.team2 as string | null) &&
+      (exists.team1_user_id ?? null) === (want.team1_user_id as string | null) &&
+      (exists.team2_user_id ?? null) === (want.team2_user_id as string | null) &&
+      (exists.seed1 ?? null) === (want.seed1 as number | null) &&
+      (exists.seed2 ?? null) === (want.seed2 as number | null);
+    if (same) continue;
+    await db
+      .from("tournament_matches")
+      .update({
+        team1: want.team1,
+        team2: want.team2,
+        team1_user_id: want.team1_user_id,
+        team2_user_id: want.team2_user_id,
+        seed1: want.seed1,
+        seed2: want.seed2,
+        status: "scheduled",
+        winner: null,
+        winner_user_id: null,
+        loser: null,
+        player_a_team: null,
+      })
+      .eq("match_id", dId);
+    try {
+      await db.from("tournament_games").delete().eq("match_id", dId);
+    } catch {}
+    updatedDownstream.push(dId);
   }
 
   return { deletedStale, updatedDownstream };

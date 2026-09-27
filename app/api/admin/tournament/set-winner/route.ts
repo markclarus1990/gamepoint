@@ -268,6 +268,9 @@ export async function POST(req: Request) {
     if (!winner || typeof winner !== "string") {
       return Response.json({ error: "winner is required (or action: reset)" }, { status: 400 });
     }
+    if (!m.team1 || !m.team2) {
+      return Response.json({ error: "Awaiting opponent — both semifinalists must be known first" }, { status: 400 });
+    }
     if (winner !== m.team1 && winner !== m.team2) {
       return Response.json({ error: "winner must be one of the two teams in this match" }, { status: 400 });
     }

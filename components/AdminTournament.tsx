@@ -422,6 +422,7 @@ function SeriesCard(props: {
   const playerB = playerA ? (playerA === m.team1 ? m.team2 : m.team1) : null;
   const decided = isCompleted && m.winner;
   const legacyDecided = decided && seriesGames.length === 0;
+  const awaitingOpponent = !m.team1 || !m.team2;
 
   return (
     <div
@@ -459,9 +460,14 @@ function SeriesCard(props: {
         <span className="text-zinc-600 font-black text-lg">–</span>
         <TeamScore team={m.team2} userId={m.team2_user_id} wins={tally.wins2} ownerName={ownerName} highlight={m.winner === m.team2} />
       </div>
+      {awaitingOpponent && !decided && (
+        <div className="mb-3 text-[11px] text-sky-400/90 font-semibold">
+          ⏳ Waiting for {m.team1 ? "opponent" : m.team2 ? "opponent" : "both semifinalists"} — semifinal slot held by {m.team1 ?? m.team2 ?? "nobody yet"}.
+        </div>
+      )}
 
       {/* Homecourt pick */}
-      {!hasToss && !decided && (
+      {!hasToss && !decided && !awaitingOpponent && (
         <div className="mb-3 rounded-lg border border-dashed border-white/15 bg-zinc-950/60 p-3">
           <div className="text-xs text-zinc-400 mb-2">
             🪙 Homecourt not set — pick who hosts <span className="font-semibold text-zinc-200">G1/G3/G5</span>
@@ -526,7 +532,7 @@ function SeriesCard(props: {
       )}
 
       {/* Per-game controls */}
-      {hasToss && seriesGames.length > 0 && (
+      {hasToss && seriesGames.length > 0 && !awaitingOpponent && (
         <div className="space-y-2 mb-3">
           {seriesGames.map((g) => {
             const key = `${m.match_id}:${g.game_number}`;
@@ -610,7 +616,7 @@ function SeriesCard(props: {
 
       {/* Direct series decide (pre-toss fallback) + series reset */}
       <div className="flex flex-wrap gap-2">
-        {!hasToss && !decided && (
+        {!hasToss && !decided && !awaitingOpponent && (
           <>
             <div className="flex flex-wrap items-center gap-2">
               {([m.team1, m.team2] as (string | null)[]).map((team) => {
@@ -678,7 +684,19 @@ function TeamScore(props: {
   ownerName: (userId: string | null) => string;
   highlight: boolean;
 }) {
-  if (!props.team) return null;
+  if (!props.team)
+    return (
+      <div className="flex items-center gap-2 min-w-0 text-zinc-500">
+        <div className="w-8 h-8 rounded-full bg-zinc-800 border border-dashed border-white/20 flex items-center justify-center text-xs font-black shrink-0">
+          ?
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-bold truncate">TBD</div>
+          <div className="text-[11px] font-normal text-zinc-600">awaiting winner</div>
+        </div>
+        <div className="text-2xl font-black tabular-nums">{props.wins}</div>
+      </div>
+    );
   return (
     <div className={`flex items-center gap-2 min-w-0 ${props.highlight ? "text-emerald-300" : "text-white"}`}>
       <img
