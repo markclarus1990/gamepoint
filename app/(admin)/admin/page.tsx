@@ -1967,7 +1967,7 @@ export default function Admin() {
               <table className="w-full text-sm text-zinc-400">
                 <thead className="text-xs text-zinc-500 border-b border-white/5">
                   <tr>
-                    <th className="p-3 text-left">Time</th>
+                    <th className="p-3 text-left">Date</th>
                     <th className="p-3 text-left">Event</th>
                     <th className="p-3 text-left">From → To</th>
                     <th className="p-3 text-left">Status</th>
@@ -1999,7 +1999,13 @@ export default function Admin() {
                     return (
                       <tr key={log.id} className={`border-b border-white/5 hover:bg-zinc-900/50 ${isShareRow ? "bg-sky-500/[0.04]" : ""} ${isEndedRow ? "bg-amber-500/[0.04]" : ""}`}>
                         <td className="p-3 whitespace-nowrap">
-                          {new Date(log.created_at).toLocaleTimeString()}
+                          {new Date(log.created_at).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
                         </td>
                         <td className="p-3">
                           <div className="flex items-center gap-2">
