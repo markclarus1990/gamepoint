@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Users,
   Sparkles,
+  Search,
 } from "lucide-react";
 import Footer from "@/app/components/Footer";
 
@@ -18,6 +19,8 @@ type Player = {
   total_minutes: number;
   avatar_url: string;
 };
+
+type SearchResult = Player & { rank: number };
 
 const features = [
   {
@@ -52,13 +55,41 @@ const formatTime = (mins: number) => {
 
 export default function LandingPage() {
   const [topPlayers, setTopPlayers] = useState<Player[]>([]);
+  const [query, setQuery] = useState("");
+  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
-    fetch("/api/top-players")
+    fetch("/api/top-players?limit=5")
       .then((r) => r.json())
-      .then(setTopPlayers)
+      .then((data) => {
+        if (Array.isArray(data)) setTopPlayers(data);
+      })
       .catch(() => {});
   }, []);
+
+  const handleSearch = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const name = query.trim();
+    if (name.length < 2 || searching) return;
+    setSearching(true);
+    setSearchError(null);
+    setSearchResult(null);
+    try {
+      const res = await fetch(`/api/top-players/search?name=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setSearchError(data.error || "Player not found.");
+      } else {
+        setSearchResult(data);
+      }
+    } catch {
+      setSearchError("Search failed. Try again.");
+    } finally {
+      setSearching(false);
+    }
+  };
 
   return (
     <>
@@ -282,36 +313,75 @@ export default function LandingPage() {
             <div className="p-4 border-b border-zinc-800 text-center">
               <h3 className="text-white font-black text-lg tracking-wider">
                 <Users className="w-4 h-4 inline mr-2 text-pink-400" />
-                ALL PLAYERS
+                TOP 5
               </h3>
+              <form onSubmit={handleSearch} className="mt-3 flex gap-2 max-w-sm mx-auto">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search your name..."
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-zinc-950/80 border border-zinc-800 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-pink-500/50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={searching || query.trim().length < 2}
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 disabled:opacity-50 transition-all"
+                >
+                  {searching ? "..." : "Find"}
+                </button>
+              </form>
+              {searchError && <p className="text-red-400 text-xs mt-2">{searchError}</p>}
+              {searchResult && (
+                <div className="mt-3 mx-3 rounded-xl border border-pink-500/30 bg-pink-500/10 p-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-pink-400 font-black text-sm min-w-[24px]">
+                      #{searchResult.rank}
+                    </span>
+                    <img
+                      src={searchResult.avatar_url || "https://placehold.co/100x100/png"}
+                      alt={searchResult.name}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-pink-500/50"
+                    />
+                    <span className="text-white font-semibold text-sm flex-1 truncate text-left">
+                      {searchResult.name}
+                    </span>
+                    <span className="text-cyan-400 text-xs font-semibold whitespace-nowrap">
+                      {formatTime(searchResult.total_minutes || 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="relative h-[280px] md:h-[300px] overflow-hidden">
-              <div className="absolute w-full animate-scroll-up py-4 space-y-3">
-                {topPlayers.length > 0 &&
-                  [...topPlayers, ...topPlayers].map((player, i) => (
-                    <div
-                      key={`${player.name}-${i}`}
-                      className="mx-3 rounded-xl border border-zinc-800 bg-zinc-950/80 backdrop-blur-sm p-3 hover:border-pink-500/20 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-pink-400 font-black text-sm min-w-[24px]">
-                          #{(i % topPlayers.length) + 1}
-                        </span>
-                        <img
-                          src={player.avatar_url || "https://placehold.co/100x100/png"}
-                          alt={player.name}
-                          className="w-10 h-10 rounded-full object-cover border-2 border-zinc-700"
-                        />
-                        <span className="text-white font-semibold text-sm flex-1 truncate">
-                          {player.name}
-                        </span>
-                        <span className="text-cyan-400 text-xs font-semibold whitespace-nowrap">
-                          {formatTime(player.total_minutes || 0)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-              </div>
+            <div className="py-4 space-y-3">
+              {topPlayers.slice(0, 5).map((player, i) => (
+                <div
+                  key={player.name}
+                  className="mx-3 rounded-xl border border-zinc-800 bg-zinc-950/80 backdrop-blur-sm p-3 hover:border-pink-500/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-pink-400 font-black text-sm min-w-[24px]">
+                      #{i + 1}
+                    </span>
+                    <img
+                      src={player.avatar_url || "https://placehold.co/100x100/png"}
+                      alt={player.name}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-zinc-700"
+                    />
+                    <span className="text-white font-semibold text-sm flex-1 truncate">
+                      {player.name}
+                    </span>
+                    <span className="text-cyan-400 text-xs font-semibold whitespace-nowrap">
+                      {formatTime(player.total_minutes || 0)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {topPlayers.length === 0 && (
+                <p className="text-center text-gray-400 text-sm py-4">No players yet.</p>
+              )}
             </div>
           </div>
         </div>

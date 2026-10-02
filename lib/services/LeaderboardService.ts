@@ -10,8 +10,52 @@ export class LeaderboardService {
   private sessionRepo = new SessionRepository();
   private userRepo = new UserRepository();
 
-  async getTopPlayers(limit?: number): Promise<LeaderboardEntry[]> {
-    const sessions = await this.sessionRepo.findAllWithMinutes(limit);
+  async getTopPlayers(limit = 5): Promise<LeaderboardEntry[]> {
+    const capped = Math.min(Math.max(limit || 5, 1), 50);
+
+    try {
+      const rows = await this.sessionRepo.findTopAggregated(capped);
+      if (rows.length === 0) return [];
+      const users = await this.userRepo.findNamesWithAvatars(rows.map((r) => r.name));
+      return rows.map((player) => ({
+        ...player,
+        avatar_url:
+          users?.find((u) => u.name === player.name)?.avatar_url ??
+          "https://placehold.co/100x100/png",
+      }));
+    } catch {
+      return this.getTopPlayersLegacy(capped);
+    }
+  }
+
+  async getPlayerRank(playerName: string): Promise<(LeaderboardEntry & { rank: number }) | null> {
+    const clean = playerName.trim();
+    if (!clean) return null;
+
+    try {
+      const row = await this.sessionRepo.findPlayerRank(clean);
+      if (!row) return null;
+      const user = await this.userRepo.findByName(row.name);
+      return {
+        name: row.name,
+        total_minutes: row.total_minutes,
+        rank: row.rank,
+        avatar_url: user?.avatar_url ?? "https://placehold.co/100x100/png",
+      };
+    } catch {
+      return this.getPlayerRankLegacy(clean);
+    }
+  }
+
+  private async getPlayerRankLegacy(playerName: string) {
+    const all = await this.getTopPlayersLegacy(1000);
+    const idx = all.findIndex((p) => p.name.toLowerCase() === playerName.toLowerCase().trim());
+    if (idx === -1) return null;
+    return { ...all[idx], rank: idx + 1 };
+  }
+
+  private async getTopPlayersLegacy(limit: number): Promise<LeaderboardEntry[]> {
+    const sessions = await this.sessionRepo.findAllWithMinutes();
 
     const grouped = (sessions || []).reduce<LeaderboardAccumulator>((acc, session) => {
       if (!acc[session.user_name]) {
@@ -28,7 +72,7 @@ export class LeaderboardService {
     const names = sorted.map((u) => u.name);
     const users = await this.userRepo.findNamesWithAvatars(names);
 
-    return sorted.map((player) => ({
+    return sorted.slice(0, limit).map((player) => ({
       ...player,
       avatar_url:
         users?.find((u) => u.name === player.name)?.avatar_url ??

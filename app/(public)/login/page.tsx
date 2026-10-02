@@ -6,6 +6,10 @@ export default function Login() {
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [topPlayers, setTopPlayers] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResult, setSearchResult] = useState<any | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
   const [userCode, setUserCode] = useState<string | null>(null);
   const [verificationUri, setVerificationUri] = useState<string | null>(null);
@@ -98,18 +102,40 @@ export default function Login() {
     };
   }, []);
 
+  const loadTopPlayers = async () => {
+    try {
+      const res = await fetch("/api/top-players?limit=5");
+      const data = await res.json();
+
+      if (Array.isArray(data)) setTopPlayers(data);
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
   useEffect(() => {
     loadTopPlayers();
   }, []);
 
-  const loadTopPlayers = async () => {
+  const handlePlayerSearch = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const q = searchQuery.trim();
+    if (q.length < 2 || searching) return;
+    setSearching(true);
+    setSearchError(null);
+    setSearchResult(null);
     try {
-      const res = await fetch("/api/top-players");
+      const res = await fetch(`/api/top-players/search?name=${encodeURIComponent(q)}`);
       const data = await res.json();
-
-      setTopPlayers(data);
-    } catch (err) {
-      console.log(err);
+      if (!res.ok) {
+        setSearchError(data.error || "Player not found.");
+      } else {
+        setSearchResult(data);
+      }
+    } catch {
+      setSearchError("Search failed. Try again.");
+    } finally {
+      setSearching(false);
     }
   };
 const formatTime = (mins: number) => {
@@ -361,9 +387,7 @@ useEffect(() => {
     <div className="
 w-full
 max-w-sm
-md:w-[190px]
-h-[220px]
-md:h-[430px]
+md:w-[240px]
 rounded-[30px]
 border-2
 border-pink-500/80
@@ -376,63 +400,81 @@ shadow-2xl
       {/* HEADER */}
       <div className="p-4 border-b border-pink-500/20">
         <h2 className="text-white text-center font-black text-lg tracking-wider">
-          TOP PLAYERS
+          TOP 5
         </h2>
 
         <p className="text-center text-xs text-pink-300 mt-1">
           Hall of Fame
         </p>
-      </div>
 
-      {/* SCROLL AREA */}
-      <div className="relative h-[140px] md:h-[340px] overflow-hidden">
-
-        <div className="absolute w-full animate-scroll-up py-4 space-y-3">
-
-          {[...topPlayers, ...topPlayers].map((player, index) => (
-            <div
-              key={`${player.id}-${index}`}
-              className="mx-3 rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-sm"
-            >
-              <div className="flex items-center gap-3">
-
-                {/* AVATAR */}
-                <img
-                  src={
-                    player.avatar_url ||
-                    "https://placehold.co/100x100/png"
-                  }
-                  alt={player.name}
-                  className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover border-2 border-pink-500 shadow-lg shadow-pink-500/30"
-                />
-
-                {/* INFO */}
-                <div className="flex-1 min-w-0">
-
-                  <div className="flex items-center justify-between">
-
-                    <span className="text-pink-400 font-black text-sm">
-                      #{(index % topPlayers.length) + 1}
-                    </span>
-
-                    <span className="text-white font-semibold text-sm truncate">
-                      {player.name}
-                    </span>
-
-                  </div>
-
-                 <div className="mt-1 text-cyan-300 text-xs">
-                  {formatTime(player.total_minutes || 0)}
+        <form onSubmit={handlePlayerSearch} className="mt-3 flex gap-2">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search name..."
+            className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-white text-xs placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pink-500"
+          />
+          <button
+            type="submit"
+            disabled={searching || searchQuery.trim().length < 2}
+            className="px-3 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-pink-500 to-fuchsia-600 disabled:opacity-50"
+          >
+            {searching ? "..." : "Find"}
+          </button>
+        </form>
+        {searchError && (
+          <p className="text-red-400 text-[11px] text-center mt-2">{searchError}</p>
+        )}
+        {searchResult && (
+          <div className="mt-2 rounded-2xl border border-pink-500/40 bg-pink-500/10 p-2.5">
+            <div className="flex items-center gap-2">
+              <img
+                src={searchResult.avatar_url || "https://placehold.co/100x100/png"}
+                alt={searchResult.name}
+                className="w-9 h-9 rounded-full object-cover border-2 border-pink-400"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-pink-400 font-black text-xs">#{searchResult.rank}</span>
+                  <span className="text-white font-semibold text-xs truncate">{searchResult.name}</span>
                 </div>
-
+                <div className="mt-0.5 text-cyan-300 text-[11px]">
+                  {formatTime(searchResult.total_minutes || 0)}
                 </div>
-
               </div>
             </div>
-          ))}
+          </div>
+        )}
+      </div>
 
-        </div>
-
+      {/* STATIC TOP 5 LIST */}
+      <div className="py-3 space-y-2.5 max-h-[320px] overflow-y-auto">
+        {topPlayers.slice(0, 5).map((player, index) => (
+          <div
+            key={player.name}
+            className="mx-3 rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-sm"
+          >
+            <div className="flex items-center gap-3">
+              <img
+                src={player.avatar_url || "https://placehold.co/100x100/png"}
+                alt={player.name}
+                className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover border-2 border-pink-500 shadow-lg shadow-pink-500/30"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-pink-400 font-black text-sm">#{index + 1}</span>
+                  <span className="text-white font-semibold text-sm truncate">{player.name}</span>
+                </div>
+                <div className="mt-1 text-cyan-300 text-xs">
+                  {formatTime(player.total_minutes || 0)}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+        {topPlayers.length === 0 && (
+          <p className="text-center text-gray-400 text-xs py-4">No players yet.</p>
+        )}
       </div>
     </div>
 

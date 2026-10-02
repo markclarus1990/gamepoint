@@ -164,4 +164,37 @@ export class SessionRepository {
     const { data } = await query;
     return data || [];
   }
+
+  async findTopAggregated(limit: number): Promise<{ name: string; total_minutes: number }[]> {
+    const { data, error } = await supabase.rpc("get_leaderboard_top", { limit_n: limit });
+    if (error) throw error;
+    return (data || []).map((row: { name: string; total_minutes: number | string }) => ({
+      name: row.name,
+      total_minutes: Number(row.total_minutes) || 0,
+    }));
+  }
+
+  async findPlayerRank(
+    playerName: string
+  ): Promise<{ name: string; total_minutes: number; rank: number } | null> {
+    const { data, error } = await supabase.rpc("get_player_rank", { p_name: playerName });
+    if (error) throw error;
+    const row = (data || [])[0] as
+      | { name: string; total_minutes: number | string; rank: number | string }
+      | undefined;
+    if (!row) return null;
+    return {
+      name: row.name,
+      total_minutes: Number(row.total_minutes) || 0,
+      rank: Number(row.rank) || 0,
+    };
+  }
+
+  async sumMinutesForPlayer(playerName: string): Promise<number> {
+    const { data } = await supabase
+      .from("sessions")
+      .select("minutes")
+      .ilike("user_name", playerName.trim());
+    return (data || []).reduce((sum, s) => sum + (s.minutes || 0), 0);
+  }
 }

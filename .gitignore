@@ -50,3 +50,5 @@ next-env.d.ts
 # dev logs
 dev-server.log
 
+
+envs.txt
