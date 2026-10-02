@@ -21,6 +21,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history + tags: the version guard below compares against
+          # the latest agent-v* tag, which needs tags present locally.
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -31,10 +35,32 @@ jobs:
         shell: pwsh
         run: |
           $version = "1.0.${{ github.run_number }}"
+          $isTagPush = "${{ github.ref }}" -like "refs/tags/agent-v*"
           # If this is a tag push like agent-v1.2.3 use the tag as version
-          if ("${{ github.ref }}" -like "refs/tags/agent-v*") {
+          if ($isTagPush) {
             $version = "${{ github.ref_name }}".Replace("agent-v","")
           }
+          if (-not $isTagPush) {
+            # Standing rule: EVERY push to main must ship a strictly newer
+            # agent version. run_number normally guarantees this, but on
+            # re-runs / restored runs it can repeat an existing version —
+            # which makes Check-Update report "same version" on the PCs.
+            # Bump the patch past the latest agent-v* tag when needed.
+            $latestPatch = -1
+            foreach ($t in (git tag --list "agent-v*")) {
+              if ($t -match "^agent-v1\.0\.(\d+)$" -and [int]$Matches[1] -gt $latestPatch) {
+                $latestPatch = [int]$Matches[1]
+              }
+            }
+            $curPatch = -1
+            if ($version -match "^1\.0\.(\d+)$") { $curPatch = [int]$Matches[1] }
+            if ($curPatch -le $latestPatch) {
+              $version = "1.0.$($latestPatch + 1)"
+              Write-Host "Version guard: bumped to $version (latest tag was agent-v1.0.$latestPatch)"
+            }
+          }
+          # Export for the release steps below so tag and exe versions agree.
+          Add-Content -Path $env:GITHUB_ENV -Value "AGENT_VERSION=$version"
           Write-Host "Building version $version"
           # Version source of truth: these -p: props (the .csproj has NO
           # hardcoded <Version>). Clean first so a stale EXE is never packaged.
@@ -100,8 +126,8 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: agent-v1.0.${{ github.run_number }}
-          name: "Agent v1.0.${{ github.run_number }}"
+          tag_name: agent-v${{ env.AGENT_VERSION }}
+          name: "Agent v${{ env.AGENT_VERSION }}"
           generate_release_notes: true
           files: |
             agent/dist/GamepointAgent.exe
