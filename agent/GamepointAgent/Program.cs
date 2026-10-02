@@ -1971,28 +1971,31 @@ try
                 y += 46;
             }
 
-            _lblPayWith.Location = new Point(0, y);
-            y += _lblPayWith.Height + 6;
-            _btnPoints.Location = new Point(0, y);
-            _btnPoints.Size = new Size(147, 38);
-            _btnGfunds.Location = new Point(155, y);
-            _btnGfunds.Size = new Size(147, 38);
-            y += 46;
+            if (_btnStart.Visible)
+            {
+                _lblPayWith.Location = new Point(0, y);
+                y += _lblPayWith.Height + 6;
+                _btnPoints.Location = new Point(0, y);
+                _btnPoints.Size = new Size(147, 38);
+                _btnGfunds.Location = new Point(155, y);
+                _btnGfunds.Size = new Size(147, 38);
+                y += 46;
 
-            _lblAmount.Location = new Point(0, y);
-            y += _lblAmount.Height + 6;
-            _amountPanel.Location = new Point(0, y);
-            _amountPanel.MaximumSize = new Size(302, 120);
-            int amountH = _amountPanel.PreferredSize.Height;
-            if (amountH < 34) amountH = 34;
-            if (amountH > 120) amountH = 120;
-            y += amountH + 6;
+                _lblAmount.Location = new Point(0, y);
+                y += _lblAmount.Height + 6;
+                _amountPanel.Location = new Point(0, y);
+                _amountPanel.MaximumSize = new Size(302, 120);
+                int amountH = _amountPanel.PreferredSize.Height;
+                if (amountH < 34) amountH = 34;
+                if (amountH > 120) amountH = 120;
+                y += amountH + 6;
 
-            _lblTime.Location = new Point(0, y);
-            y += string.IsNullOrEmpty(_lblTime.Text) ? 8 : 26;
-            _btnStart.Location = new Point(0, y);
-            _btnStart.Size = new Size(302, 42);
-            y += 50;
+                _lblTime.Location = new Point(0, y);
+                y += string.IsNullOrEmpty(_lblTime.Text) ? 8 : 26;
+                _btnStart.Location = new Point(0, y);
+                _btnStart.Size = new Size(302, 42);
+                y += 50;
+            }
 
             _lblStartError.Location = new Point(0, y);
             if (!string.IsNullOrEmpty(_lblStartError.Text))
@@ -2263,6 +2266,14 @@ try
             }
 
             SetPayment("points");
+            var hidePaid = hasResume || hasCredit;
+            if (hidePaid)
+            {
+                _selectedAmount = 0;
+                _lblTime.Text = "";
+                _lblStartError.Text = "Resume your saved/shared time first — top-up hidden to avoid wasting it.";
+            }
+
             _loginPanel.Visible = false;
             _paymentPanel.Visible = true;
             _paymentPanel.BringToFront();
@@ -2270,6 +2281,14 @@ try
             {
                 c.Visible = true;
             }
+            // Hide paid top-up when saved/shared time exists so a new purchase can't discard it.
+            _lblPayWith.Visible = !hidePaid;
+            _btnPoints.Visible = !hidePaid;
+            _btnGfunds.Visible = !hidePaid;
+            _lblAmount.Visible = !hidePaid;
+            _amountPanel.Visible = !hidePaid;
+            _lblTime.Visible = !hidePaid;
+            _btnStart.Visible = !hidePaid;
             _lblResume.Visible = _resumeSeconds > 0;
             _btnResume.Visible = _resumeSeconds > 0;
             _lblCredit.Visible = _creditMinutes > 0;
