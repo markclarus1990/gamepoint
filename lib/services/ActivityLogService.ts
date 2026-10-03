@@ -215,6 +215,27 @@ export class ActivityLogService {
     });
   }
 
+  async logAdminGrantTime(
+    adminName: string,
+    targetName: string,
+    minutes: number,
+    extra?: { target_station?: string | null; target_session_seconds?: number | null; target_credit?: number }
+  ): Promise<void> {
+    await this.repo.log({
+      actor_name: adminName,
+      actor_role: "admin",
+      action: "admin_grant_time",
+      target_type: "user",
+      target_id: targetName,
+      details: {
+        minutes,
+        target_station: extra?.target_station ?? null,
+        target_session_seconds: extra?.target_session_seconds ?? null,
+        target_credit: extra?.target_credit ?? null,
+      },
+    });
+  }
+
   async logRedeemApprove(adminName: string, userName: string, pointsUsed: number, minutes: number): Promise<void> {
     await this.repo.log({
       actor_name: adminName,

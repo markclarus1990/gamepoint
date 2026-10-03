@@ -464,6 +464,76 @@ export class SessionService {
     };
   }
 
+  async grantTime(params: {
+    userId?: string;
+    targetName?: string;
+    minutes: number;
+  }): Promise<
+    | { error: string }
+    | {
+        success: true;
+        player_name: string;
+        remaining_seconds: number;
+        target_credit: number;
+        target_session_seconds: number | null;
+        target_station: string | null;
+      }
+  > {
+    const mins = Number(params.minutes);
+    if (!Number.isInteger(mins) || mins <= 0) {
+      return { error: "Minutes must be a positive whole number" };
+    }
+    if (mins > 480) {
+      return { error: "Cannot grant more than 480 minutes at once" };
+    }
+
+    const target = params.userId
+      ? await this.userRepo.findById(params.userId)
+      : params.targetName
+        ? await this.userRepo.findByName(params.targetName.trim(), true)
+        : null;
+
+    if (!target) {
+      return { error: "Player not found" };
+    }
+
+    await this.sessionRepo.expireOverdue();
+
+    const targetSession = await this.sessionRepo.findActiveForUser(target.id);
+
+    try {
+      if (targetSession?.ends_at) {
+        const baseMs = Math.max(new Date(targetSession.ends_at).getTime(), Date.now());
+        const newEndsAt = new Date(baseMs + mins * 60 * 1000);
+        await this.sessionRepo.updateEndsAt(targetSession.id, newEndsAt.toISOString());
+        return {
+          success: true,
+          player_name: target.name,
+          remaining_seconds: Math.max(0, Math.floor((newEndsAt.getTime() - Date.now()) / 1000)),
+          target_credit: target.time_credit_minutes ?? 0,
+          target_session_seconds: Math.max(
+            0,
+            Math.floor((newEndsAt.getTime() - Date.now()) / 1000)
+          ),
+          target_station: targetSession.station_name ?? null,
+        };
+      }
+
+      await this.userRepo.addTimeCreditById(target.id, mins);
+      return {
+        success: true,
+        player_name: target.name,
+        remaining_seconds: 0,
+        target_credit: (target.time_credit_minutes ?? 0) + mins,
+        target_session_seconds: null,
+        target_station: null,
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to grant time";
+      return { error: message };
+    }
+  }
+
   async openStationSession(
     stationName: string,
     minutes: number

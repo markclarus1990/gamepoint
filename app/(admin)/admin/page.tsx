@@ -189,8 +189,7 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
         subtitle: `Where shared time went — consumed${remaining}`,
       };
     }
-    case "add_time": {
-      const station = str(d.station);
+    case "add_time": {      const station = str(d.station);
       const payment = str(d.payment);
       const mins = num(d.minutes_added);
       const g = num(d.gfundsUsed);
@@ -201,6 +200,19 @@ function formatActivityLog(log: ActivityLogEntry): FormattedEvent {
         color: "text-purple-400 bg-purple-500/10",
         title: `${log.actor_name} added ${mins}m on ${station || "?"} (${paid} via ${payment === "gfunds" ? "gfunds" : "gamepoints"})`,
         subtitle: `Where funds came from: ${payment} • remaining ${Math.floor(num(d.remaining_seconds) / 60)}m`,
+      };
+    }
+    case "admin_grant_time": {
+      const mins = num(d.minutes);
+      const station = str(d.target_station);
+      const where = station
+        ? `extended live session${` on ${station}`} • ${Math.floor(num(d.target_session_seconds) / 60)}m left`
+        : `saved as free credit • ${num(d.target_credit)}m total`;
+      return {
+        Icon: Gift,
+        color: "text-teal-400 bg-teal-500/10 border border-teal-500/20",
+        title: `${log.actor_name} granted ${mins}m free time → ${target || "?"}`,
+        subtitle: `Free bonus, no payment • ${where}`,
       };
     }
     case "session_start": {
@@ -518,6 +530,7 @@ export default function Admin() {
   const [tab, setTab] = useState<Tab>("stations");
   const [viewStation, setViewStation] = useState<Station | null>(null);
   const [shareStation, setShareStation] = useState<Station | null>(null);
+  const [grantUser, setGrantUser] = useState<User | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<null | "load" | "deduct" | "resetPin">(null);
@@ -1442,6 +1455,13 @@ export default function Admin() {
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <button
+                        onClick={() => setGrantUser(u)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 transition-colors"
+                      >
+                        <Clock className="w-3 h-3" />
+                        Add Time
+                      </button>
+                      <button
                         onClick={() => {
                           setSelectedUser(u);
                           setShowModal(true);
@@ -1824,6 +1844,7 @@ export default function Admin() {
               <option value="session_share_failed">Share Failed</option>
               <option value="credit_consume">Credit Consume</option>
               <option value="add_time">Add Time</option>
+              <option value="admin_grant_time">Admin Grant Time</option>
               <option value="admin_open_time">Admin Open Time</option>
               <option value="redeem_approve">Redeem Approve</option>
               <option value="shop_grant">Shop Grant</option>
@@ -2332,6 +2353,21 @@ export default function Admin() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ============ GRANT TIME MODAL ============ */}
+      {grantUser && (
+        <GrantTimeModal
+          user={grantUser}
+          users={users}
+          onClose={() => setGrantUser(null)}
+          onDone={(msg) => {
+            setGrantUser(null);
+            notify(msg);
+            loadUsers();
+            loadStations();
+          }}
+        />
       )}
 
       {/* ============ SHARE TIME MODAL ============ */}
@@ -2935,6 +2971,185 @@ function formatAge(age: number | null) {
   if (age < 5) return "just now";
   if (age < 60) return `${age}s ago`;
   return `${Math.floor(age / 60)}m ago`;
+}
+
+/* ============ GRANT TIME MODAL (admin free bonus minutes) ============ */
+function GrantTimeModal({
+  user,
+  users,
+  onClose,
+  onDone,
+}: {
+  user: User;
+  users: User[];
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
+  const [targetName, setTargetName] = useState(user.name);
+  const [showList, setShowList] = useState(false);
+  const [minutes, setMinutes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const minutesNum = Number(minutes) || 0;
+
+  const filtered = users
+    .filter((u) => u.name.toLowerCase().includes(targetName.trim().toLowerCase()))
+    .slice(0, 8);
+
+  const grant = async () => {
+    if (!targetName.trim() || minutesNum <= 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/grant-time", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_name: targetName.trim(), minutes: minutesNum }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        setBusy(false);
+        return;
+      }
+      if (data.target_session_seconds != null) {
+        onDone(
+          `${data.player_name} +${minutesNum} min — extended live session${data.target_station ? ` on ${data.target_station}` : ""} (${formatRemainingShort(data.target_session_seconds)} left).`
+        );
+      } else {
+        onDone(
+          `${data.player_name} +${minutesNum} min free credit (${data.target_credit} min total).`
+        );
+      }
+    } catch {
+      setError("Cannot reach the server");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+      <div className="w-full sm:max-w-md bg-[#0f1b2e] border border-white/10 rounded-t-3xl sm:rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold text-lg">
+            Add Time — <span className="text-teal-400">{user.name}</span>
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="text-sm text-zinc-400">
+          Free bonus minutes from admin — no payment needed. Added to their live
+          session if playing now, otherwise saved as free credit.
+        </div>
+
+        <div className="relative">
+          <div className="text-sm text-zinc-400 mb-1">Player</div>
+          <input
+            placeholder="Search player name…"
+            value={targetName}
+            onChange={(e) => {
+              setTargetName(e.target.value);
+              setShowList(true);
+            }}
+            onFocus={() => setShowList(true)}
+            onBlur={() => setTimeout(() => setShowList(false), 150)}
+            className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-teal-500/60"
+          />
+          {showList && filtered.length > 0 && (
+            <div className="absolute z-10 left-0 right-0 mt-1 max-h-44 overflow-y-auto bg-[#1e293b] border border-white/10 rounded-xl shadow-2xl shadow-black/50">
+              {filtered.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setTargetName(u.name);
+                    setShowList(false);
+                  }}
+                  className="w-full text-left px-3.5 py-2 text-sm text-zinc-200 hover:bg-teal-500/20 hover:text-white transition-colors truncate"
+                >
+                  {u.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="text-sm text-zinc-400 mb-1">Minutes to add</div>
+          <div className="grid grid-cols-4 gap-2">
+            {[15, 30, 60, 120].map((m) => (
+              <button
+                key={m}
+                onClick={() => setMinutes(String(m))}
+                className={`py-2 rounded-xl text-xs font-medium transition-colors ${
+                  minutesNum === m
+                    ? "bg-gradient-to-r from-teal-600 to-emerald-600 text-white"
+                    : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                }`}
+              >
+                {m}m
+              </button>
+            ))}
+          </div>
+          <AdminNumberInput
+            min={1}
+            max={480}
+            placeholder="Custom minutes (max 480)"
+            value={minutes}
+            onChange={(v) => {
+              if (v === "") {
+                setMinutes("");
+                return;
+              }
+              const n = Number(v) || 0;
+              if (n <= 0) {
+                setMinutes(v);
+                return;
+              }
+              setMinutes(String(Math.min(480, n)));
+            }}
+            className="w-full mt-2 px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-teal-500/60"
+          />
+        </div>
+
+        {targetName.trim() && minutesNum > 0 && (
+          <div className="text-xs text-teal-400 font-medium">
+            {minutesNum} min → {targetName.trim()} (extends live session if playing,
+            otherwise saved as free credit)
+          </div>
+        )}
+
+        {error && <div className="text-xs text-red-400">{error}</div>}
+
+        <button
+          onClick={grant}
+          disabled={busy || !targetName.trim() || minutesNum <= 0}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 disabled:opacity-40 transition-all"
+        >
+          {busy ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <Loader2 className="w-4 h-4 animate-spin" /> Adding…
+            </span>
+          ) : (
+            "Add Time"
+          )}
+        </button>
+        <button
+          onClick={onClose}
+          className="w-full py-2 text-sm text-zinc-400 hover:text-white"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* ============ SHARE TIME MODAL ============ */
