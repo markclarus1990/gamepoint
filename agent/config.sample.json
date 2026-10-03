@@ -11,5 +11,8 @@
   "killOnExpiry": false,
   "blockedProcesses": ["javaw", "java", "MinecraftLauncher", "Minecraft", "Minecraft.Windows"],
   "lockPollMs": 250,
-  "expiryPrePollSecs": 30
+  "expiryPrePollSecs": 30,
+  "unlockPollMs": 3000,
+  "lockBurstSecs": 5,
+  "tryFullscreenToggle": true
 }

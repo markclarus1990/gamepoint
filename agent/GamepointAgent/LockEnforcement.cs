@@ -17,6 +17,9 @@ internal static class LockEnforcement
 {
     private const int SW_MINIMIZE = 6;
     private const int SW_FORCEMINIMIZE = 11;
+    private const uint WM_SYSKEYDOWN = 0x0104;
+    private const uint WM_SYSKEYUP = 0x0105;
+    private const int VK_RETURN = 0x0D;
 
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_NOMOVE = 0x0002;
@@ -42,6 +45,20 @@ internal static class LockEnforcement
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -96,15 +113,46 @@ internal static class LockEnforcement
     /// <summary>
     /// Minimize all visible top-level windows owned by the blocked (game)
     /// processes. Safe: never touches our own agent PID.
+    /// Uses ShowWindowAsync first (works even when the game thread is stuck
+    /// in an exclusive-fullscreen pump), falling back to ShowWindow.
     /// </summary>
     public static int MinimizeBlockedProcesses(string[]? names)
     {
+        var wins = FindBlockedWindows(names);
+        if (wins.Count == 0) return 0;
+        var count = 0;
+        foreach (var hWnd in wins)
+        {
+            if (MinimizeWindow(hWnd)) count++;
+        }
+        return count;
+    }
+
+    private static bool MinimizeWindow(IntPtr hWnd)
+    {
+        try
+        {
+            if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return false;
+            // Async first: posts to the window even if its thread is busy.
+            // Repeat FORCEMINIMIZE then MINIMIZE — fullscreen GL windows
+            // often swallow the first request.
+            var ok = false;
+            try { ok |= ShowWindowAsync(hWnd, SW_FORCEMINIMIZE); } catch { }
+            try { ok |= ShowWindow(hWnd, SW_FORCEMINIMIZE); } catch { }
+            try { ok |= ShowWindow(hWnd, SW_MINIMIZE); } catch { }
+            return ok;
+        }
+        catch { return false; }
+    }
+
+    private static List<IntPtr> FindBlockedWindows(string[]? names)
+    {
+        var wins = new List<IntPtr>();
         var pids = ResolvePids(names);
-        if (pids.Count == 0) return 0;
+        if (pids.Count == 0) return wins;
         var own = (uint)Environment.ProcessId;
         pids.Remove(own);
-        if (pids.Count == 0) return 0;
-        var count = 0;
+        if (pids.Count == 0) return wins;
         try
         {
             EnumWindows((hWnd, _) =>
@@ -114,15 +162,85 @@ internal static class LockEnforcement
                     if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;
                     GetWindowThreadProcessId(hWnd, out var pid);
                     if (!pids.Contains(pid)) return true;
-                    if (ShowWindow(hWnd, SW_FORCEMINIMIZE) || ShowWindow(hWnd, SW_MINIMIZE))
-                        count++;
+                    wins.Add(hWnd);
                 }
                 catch { }
                 return true;
             }, IntPtr.Zero);
         }
         catch { }
-        return count;
+        return wins;
+    }
+
+    /// <summary>
+    /// Best-effort exclusive-fullscreen exit: posts Alt+Enter to each game
+    /// window (targeted PostMessage only — no global key injection, no world
+    /// impact). Most LWJGL/GLFW Minecraft builds toggle windowed on Alt+Enter,
+    /// letting the lock surface. Harmless if the game ignores it.
+    /// </summary>
+    public static void NudgeFullscreenToWindowed(string[]? names)
+    {
+        var wins = FindBlockedWindows(names);
+        foreach (var hWnd in wins)
+        {
+            try
+            {
+                // lParam bit 29 = Alt context. KEYDOWN then KEYUP for Enter.
+                PostMessage(hWnd, WM_SYSKEYDOWN, (IntPtr)VK_RETURN, (IntPtr)(1 << 29));
+                PostMessage(hWnd, WM_SYSKEYUP, (IntPtr)VK_RETURN, (IntPtr)((1 << 29) | (1 << 30) | (1 << 31)));
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Fresh-lock burst helper: minimize whatever foreign window is on top
+    /// (game, browser, launcher — anything not ours), so the login is
+    /// guaranteed visible. Skips the Windows taskbar/desktop shell.
+    /// Only used during the first seconds of a lock, then game-only.
+    /// </summary>
+    public static bool MinimizeForeignForeground(Form lockForm)
+    {
+        try
+        {
+            if (lockForm.IsDisposed || !lockForm.Visible) return false;
+            var fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero || fg == lockForm.Handle) return false;
+            GetWindowThreadProcessId(fg, out var fgPid);
+            if (fgPid == (uint)Environment.ProcessId) return false;
+            var cls = new System.Text.StringBuilder(256);
+            try { GetClassName(fg, cls, cls.Capacity); } catch { }
+            var clsName = cls.ToString();
+            if (clsName == "Shell_TrayWnd" || clsName == "Progman" || clsName == "WorkerW")
+                return false;
+            if (!IsWindowVisible(fg) || IsIconic(fg)) return false;
+            return MinimizeWindow(fg);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>One-line "process.exe|window title" of the foreground window for agent-debug.log.</summary>
+    public static string DescribeForeground()
+    {
+        try
+        {
+            var fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero) return "none";
+            GetWindowThreadProcessId(fg, out var pid);
+            string proc = $"pid={pid}";
+            try
+            {
+                using var p = Process.GetProcessById((int)pid);
+                proc = (p.ProcessName ?? "unknown") + ".exe";
+            }
+            catch { }
+            var sb = new System.Text.StringBuilder(200);
+            try { GetWindowText(fg, sb, sb.Capacity); } catch { }
+            var title = sb.ToString().Trim();
+            if (title.Length > 80) title = title.Substring(0, 80);
+            return $"{proc}|{title}";
+        }
+        catch { return "unknown"; }
     }
 
     /// <summary>
@@ -149,8 +267,7 @@ internal static class LockEnforcement
                 {
                     if (IsWindowVisible(fg) && !IsIconic(fg))
                     {
-                        ShowWindow(fg, SW_FORCEMINIMIZE);
-                        ShowWindow(fg, SW_MINIMIZE);
+                        MinimizeWindow(fg);
                     }
                 }
                 catch { }
@@ -213,6 +330,7 @@ internal sealed class KeyboardHook : IDisposable
     private const int VK_RWIN = 0x5C;
     private const int VK_CONTROL = 0x11;
     private const int LLKHF_ALTDOWN = 0x20;
+    private const int LLKHF_INJECTED = 0x10;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct KbdStruct
@@ -258,6 +376,11 @@ internal sealed class KeyboardHook : IDisposable
                 try
                 {
                     var kb = Marshal.PtrToStructure<KbdStruct>(lParam);
+                    // Let synthetic input through (agent's own SendInput,
+                    // remote-control, on-screen keyboard, fullscreen helpers).
+                    // Only physical Alt+Tab/Win presses are swallowed.
+                    if ((kb.flags & LLKHF_INJECTED) != 0)
+                        return CallNextHookEx(_hookId, nCode, wParam, lParam);
                     var vk = (int)kb.vkCode;
                     var altDown = (kb.flags & LLKHF_ALTDOWN) != 0;
                     var ctrlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;

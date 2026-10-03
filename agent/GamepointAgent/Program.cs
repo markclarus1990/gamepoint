@@ -32,6 +32,10 @@ internal static class Program
         public string[] BlockedProcesses { get; set; } = new[] { "javaw", "java", "MinecraftLauncher", "Minecraft", "Minecraft.Windows" };
         public int LockPollMs { get; set; } = 250;
         public int ExpiryPrePollSecs { get; set; } = 30;
+        // Admin End Session speed + fresh-lock surfacing (minimize-only).
+        public int UnlockPollMs { get; set; } = 3000;
+        public int LockBurstSecs { get; set; } = 5;
+        public bool TryFullscreenToggle { get; set; } = true;
     }
 
     private sealed class Status
@@ -360,6 +364,8 @@ internal static class Program
         cfg.GithubRepo ??= "markclarus1990/gamepoint";
         if (cfg.LockPollMs < 100 || cfg.LockPollMs > 2000) cfg.LockPollMs = 250;
         if (cfg.ExpiryPrePollSecs < 5 || cfg.ExpiryPrePollSecs > 300) cfg.ExpiryPrePollSecs = 30;
+        if (cfg.UnlockPollMs < 1000 || cfg.UnlockPollMs > 10000) cfg.UnlockPollMs = 3000;
+        if (cfg.LockBurstSecs < 0 || cfg.LockBurstSecs > 30) cfg.LockBurstSecs = 5;
         if (cfg.BlockedProcesses is null || cfg.BlockedProcesses.Length == 0)
             cfg.BlockedProcesses = new[] { "javaw", "java", "MinecraftLauncher", "Minecraft", "Minecraft.Windows" };
 
@@ -453,6 +459,7 @@ internal static class Program
         private CountdownForm? _countdownForm;
         private Status? _current;
         private DateTime _lockHeldUntil = DateTime.MinValue;
+        private DateTime _lockSince = DateTime.MinValue;
         private bool _remoteControl;
         private DateTime _lastControlShot = DateTime.MinValue;
         private const int RemotePollMs = 1000;
@@ -489,7 +496,7 @@ internal static class Program
             };
             _http.DefaultRequestHeaders.Add("x-agent-key", _cfg.AgentKey);
 
-            _pollTimer = new System.Windows.Forms.Timer { Interval = Math.Max(5, _cfg.PollSeconds) * 1000 };
+            _pollTimer = new System.Windows.Forms.Timer { Interval = UnlockedPollMs() };
             _pollTimer.Tick += async (_, _) => await PollAsync();
 
             _clockTimer = new System.Windows.Forms.Timer { Interval = 1000 };
@@ -513,11 +520,23 @@ internal static class Program
             {
                 var lf = _lockForm;
                 if (lf is null || lf.IsDisposed || !lf.Visible) return;
-                // Fast reclaim: minimize Java/Minecraft if it stole focus, then pin lock topmost.
-                if (_cfg.MinimizeOnLock)
-                    LockEnforcement.ReclaimForeground(lf, _cfg.BlockedProcesses);
-                else
+                if (!_cfg.MinimizeOnLock)
+                {
                     lf.ForceTop();
+                    return;
+                }
+                // Every tick: minimize ALL game windows (not just foreground —
+                // exclusive fullscreen re-takes focus, so one shot is not enough).
+                try { LockEnforcement.MinimizeBlockedProcesses(_cfg.BlockedProcesses); } catch { }
+                // Fresh-lock burst: also shove any foreign window aside so the
+                // login is guaranteed visible even if something else covered it.
+                try
+                {
+                    if (DateTime.Now - _lockSince < TimeSpan.FromSeconds(Math.Max(0, _cfg.LockBurstSecs)))
+                        LockEnforcement.MinimizeForeignForeground(lf);
+                }
+                catch { }
+                try { LockEnforcement.ReclaimForeground(lf, _cfg.BlockedProcesses); } catch { }
             };
 
             var repo = string.IsNullOrWhiteSpace(_cfg.GithubRepo) ? "markclarus1990/gamepoint" : _cfg.GithubRepo!;
@@ -1472,13 +1491,22 @@ try
             _lockForm.ShowPlayerStatus($"{player.Name} — {FmtMinutes(mins)} left • ₱{gfunds} gfunds • {points} pts");
         }
 
+        private int UnlockedPollMs()
+        {
+            // Admin End Session must land in ~2-3s: cap the unlocked poll at
+            // UnlockPollMs (default 3s) even if PollSeconds is 10s.
+            var cfgPoll = Math.Max(5, _cfg.PollSeconds) * 1000;
+            var cap = Math.Clamp(_cfg.UnlockPollMs, 1000, 10000);
+            return Math.Min(cfgPoll, cap);
+        }
+
         private void UpdatePollSpeed()
         {
             try
             {
                 if (_remoteControl) return;
                 if (_current is null || _current.Locked) return;
-                var normal = Math.Max(5, _cfg.PollSeconds) * 1000;
+                var normal = UnlockedPollMs();
                 var fast = 2000;
                 var want = _current.RemainingSeconds <= Math.Max(5, _cfg.ExpiryPrePollSecs) ? fast : normal;
                 if (_pollTimer.Interval != want)
@@ -1524,7 +1552,18 @@ try
                 if (_cfg.KillOnExpiry)
                     LockEnforcement.KillBlockedProcesses(_cfg.BlockedProcesses);
                 else if (_cfg.MinimizeOnLock)
-                    LockEnforcement.MinimizeBlockedProcesses(_cfg.BlockedProcesses);
+                {
+                    // Repeat: fullscreen GL windows often swallow the first minimize.
+                    for (var i = 0; i < 3; i++)
+                    {
+                        try { LockEnforcement.MinimizeBlockedProcesses(_cfg.BlockedProcesses); }
+                        catch { break; }
+                    }
+                    if (_cfg.TryFullscreenToggle)
+                    {
+                        try { LockEnforcement.NudgeFullscreenToWindowed(_cfg.BlockedProcesses); } catch { }
+                    }
+                }
             }
             catch { }
             try { KeyboardHook.Install(); } catch { }
@@ -1555,16 +1594,19 @@ try
 
             if (st.Locked)
             {
-                if (!wasLocked)
+                var freshLock = !wasLocked;
+                if (freshLock)
                 {
+                    _lockSince = DateTime.Now;
                     KillChromePlayingYoutube();
-                    EnforceLockNow();
                 }
                 else
                 {
                     // Already locked — keep hook alive (e.g. after restart).
                     try { KeyboardHook.Install(); } catch { }
                 }
+                // Login-first ordering: the lock surface must exist before we
+                // start shoving game windows behind it.
                 if (_lockForm is null || _lockForm.IsDisposed)
                 {
                     _lockForm = new LockForm(this);
@@ -1573,18 +1615,34 @@ try
                 }
                 else
                 {
-                    if (!wasLocked)
+                    if (freshLock)
                     {
                         _lockForm.ResetForNewLock();
                     }
                     _lockForm.Show(this);
                     _lockForm.ForceTop();
                 }
+                if (freshLock)
+                {
+                    // Minimize burst + fullscreen nudge AFTER the login exists.
+                    EnforceLockNow();
+                    try
+                    {
+                        var fg = LockEnforcement.DescribeForeground();
+                        Dbg($"Fresh lock: foreground was {fg}");
+                    }
+                    catch { }
+                }
                 // Belt-and-suspenders: game may be fullscreen on top of us.
                 try
                 {
                     if (_cfg.MinimizeOnLock && _lockForm is not null && !_lockForm.IsDisposed)
+                    {
+                        LockEnforcement.MinimizeBlockedProcesses(_cfg.BlockedProcesses);
+                        if (DateTime.Now - _lockSince < TimeSpan.FromSeconds(Math.Max(0, _cfg.LockBurstSecs)))
+                            LockEnforcement.MinimizeForeignForeground(_lockForm);
                         LockEnforcement.ReclaimForeground(_lockForm, _cfg.BlockedProcesses);
+                    }
                 }
                 catch { }
                 _countdownForm?.SetBalances();
@@ -1594,6 +1652,7 @@ try
             }
             else
             {
+                _lockSince = DateTime.MinValue;
                 _keepOnTopTimer.Stop();
                 ReleaseLockEnforcement();
                 if (_lockForm is not null && !_lockForm.IsDisposed)
