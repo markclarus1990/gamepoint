@@ -25,6 +25,13 @@ internal static class Program
         public string? GithubRepo { get; set; }
         public string? GithubToken { get; set; }
         public int UpdateCheckMinutes { get; set; } = 60;
+        // Hard-lock enforcement (Alt+Tab bypass fix, Java Edition).
+        // Minimize game windows + swallow Alt+Tab/Win while locked.
+        public bool MinimizeOnLock { get; set; } = true;
+        public bool KillOnExpiry { get; set; } = false;
+        public string[] BlockedProcesses { get; set; } = new[] { "javaw", "java", "MinecraftLauncher", "Minecraft", "Minecraft.Windows" };
+        public int LockPollMs { get; set; } = 250;
+        public int ExpiryPrePollSecs { get; set; } = 30;
     }
 
     private sealed class Status
@@ -332,7 +339,9 @@ internal static class Program
 
         try
         {
-            cfg = JsonSerializer.Deserialize<Config>(File.ReadAllText(configPath)) ?? new Config();
+            cfg = JsonSerializer.Deserialize<Config>(
+                File.ReadAllText(configPath),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new Config();
         }
         catch
         {
@@ -349,6 +358,10 @@ internal static class Program
         // Normalize optional fields for old configs
         if (cfg.UpdateCheckMinutes <= 0) cfg.UpdateCheckMinutes = 60;
         cfg.GithubRepo ??= "markclarus1990/gamepoint";
+        if (cfg.LockPollMs < 100 || cfg.LockPollMs > 2000) cfg.LockPollMs = 250;
+        if (cfg.ExpiryPrePollSecs < 5 || cfg.ExpiryPrePollSecs > 300) cfg.ExpiryPrePollSecs = 30;
+        if (cfg.BlockedProcesses is null || cfg.BlockedProcesses.Length == 0)
+            cfg.BlockedProcesses = new[] { "javaw", "java", "MinecraftLauncher", "Minecraft", "Minecraft.Windows" };
 
         var controller = new ControllerForm(cfg);
         Application.Run(controller);
@@ -487,11 +500,25 @@ internal static class Program
                 {
                     _current.RemainingSeconds -= 1;
                     _countdownForm?.SetTime(_current.RemainingSeconds);
+                    UpdatePollSpeed();
+                    if (_current.RemainingSeconds <= 0)
+                    {
+                        OnLocalTimeExpired();
+                    }
                 }
             };
 
-            _keepOnTopTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            _keepOnTopTimer.Tick += (_, _) => _lockForm?.ForceTop();
+            _keepOnTopTimer = new System.Windows.Forms.Timer { Interval = Math.Clamp(_cfg.LockPollMs, 100, 2000) };
+            _keepOnTopTimer.Tick += (_, _) =>
+            {
+                var lf = _lockForm;
+                if (lf is null || lf.IsDisposed || !lf.Visible) return;
+                // Fast reclaim: minimize Java/Minecraft if it stole focus, then pin lock topmost.
+                if (_cfg.MinimizeOnLock)
+                    LockEnforcement.ReclaimForeground(lf, _cfg.BlockedProcesses);
+                else
+                    lf.ForceTop();
+            };
 
             var repo = string.IsNullOrWhiteSpace(_cfg.GithubRepo) ? "markclarus1990/gamepoint" : _cfg.GithubRepo!;
             _updater = new Updater(_http, _cfg.ServerUrl, repo, _cfg.GithubToken);
@@ -590,9 +617,10 @@ internal static class Program
                     if (st.RemoteControl != _remoteControl)
                     {
                         _remoteControl = st.RemoteControl;
-                        _pollTimer.Interval = _remoteControl
-                            ? RemotePollMs
-                            : Math.Max(5, _cfg.PollSeconds) * 1000;
+                        if (_remoteControl)
+                            _pollTimer.Interval = RemotePollMs;
+                        else
+                            UpdatePollSpeed();
                         Dbg($"Remote control {(_remoteControl ? "ON" : "OFF")} — poll {_pollTimer.Interval}ms");
                     }
                     if (_remoteControl)
@@ -1444,6 +1472,75 @@ try
             _lockForm.ShowPlayerStatus($"{player.Name} — {FmtMinutes(mins)} left • ₱{gfunds} gfunds • {points} pts");
         }
 
+        private void UpdatePollSpeed()
+        {
+            try
+            {
+                if (_remoteControl) return;
+                if (_current is null || _current.Locked) return;
+                var normal = Math.Max(5, _cfg.PollSeconds) * 1000;
+                var fast = 2000;
+                var want = _current.RemainingSeconds <= Math.Max(5, _cfg.ExpiryPrePollSecs) ? fast : normal;
+                if (_pollTimer.Interval != want)
+                    _pollTimer.Interval = want;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Local countdown hit zero — lock immediately without waiting for
+        /// the next server poll (closes the 0-10s Alt+Tab window), then
+        /// re-sync with the server. Does NOT set _lockHeldUntil so a timely
+        /// Add Time / top-up still unlocks on the next poll.
+        /// </summary>
+        private void OnLocalTimeExpired()
+        {
+            try
+            {
+                if (_current is null || _current.Locked) return;
+                if (_current.RemainingSeconds > 0) return;
+                Dbg("Local time expired — locking immediately");
+                EnforceLockNow();
+                ApplyStatus(new Status
+                {
+                    Locked = true,
+                    RemainingSeconds = 0,
+                    StationName = _cfg.StationName,
+                    UserName = ""
+                });
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(300);
+                    await PollAsync();
+                });
+            }
+            catch { }
+        }
+
+        private void EnforceLockNow()
+        {
+            try
+            {
+                if (_cfg.KillOnExpiry)
+                    LockEnforcement.KillBlockedProcesses(_cfg.BlockedProcesses);
+                else if (_cfg.MinimizeOnLock)
+                    LockEnforcement.MinimizeBlockedProcesses(_cfg.BlockedProcesses);
+            }
+            catch { }
+            try { KeyboardHook.Install(); } catch { }
+        }
+
+        private void ReleaseLockEnforcement()
+        {
+            try { KeyboardHook.Uninstall(); } catch { }
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            try { KeyboardHook.Uninstall(); } catch { }
+            base.OnFormClosed(e);
+        }
+
         private void ApplyStatus(Status st)
         {
             if (!st.Locked && DateTime.Now < _lockHeldUntil)
@@ -1461,11 +1558,18 @@ try
                 if (!wasLocked)
                 {
                     KillChromePlayingYoutube();
+                    EnforceLockNow();
+                }
+                else
+                {
+                    // Already locked — keep hook alive (e.g. after restart).
+                    try { KeyboardHook.Install(); } catch { }
                 }
                 if (_lockForm is null || _lockForm.IsDisposed)
                 {
                     _lockForm = new LockForm(this);
                     _lockForm.Show(this);
+                    _lockForm.ForceTop();
                 }
                 else
                 {
@@ -1476,13 +1580,22 @@ try
                     _lockForm.Show(this);
                     _lockForm.ForceTop();
                 }
+                // Belt-and-suspenders: game may be fullscreen on top of us.
+                try
+                {
+                    if (_cfg.MinimizeOnLock && _lockForm is not null && !_lockForm.IsDisposed)
+                        LockEnforcement.ReclaimForeground(_lockForm, _cfg.BlockedProcesses);
+                }
+                catch { }
                 _countdownForm?.SetBalances();
                 _countdownForm?.Hide();
+                try { _keepOnTopTimer.Interval = Math.Clamp(_cfg.LockPollMs, 100, 2000); } catch { }
                 _keepOnTopTimer.Start();
             }
             else
             {
                 _keepOnTopTimer.Stop();
+                ReleaseLockEnforcement();
                 if (_lockForm is not null && !_lockForm.IsDisposed)
                 {
                     _lockForm.AllowClose = true;
@@ -1513,6 +1626,7 @@ try
                     _lockForm?.SetUpdateStatus($"Update v{_pendingUpdate.Version} available", true, _pendingUpdate.Version, _pendingUpdate.DownloadUrl);
                     _countdownForm?.SetUpdateStatus($"v{_pendingUpdate.Version} available", true, _pendingUpdate.Version, _pendingUpdate.DownloadUrl);
                 }
+                UpdatePollSpeed();
             }
         }
 
@@ -2037,8 +2151,13 @@ try
         public void ForceTop()
         {
             if (IsDisposed || !Visible) return;
-            Activate();
-            BringToFront();
+            try
+            {
+                LockEnforcement.ForceTopMost(this);
+                Activate();
+                BringToFront();
+            }
+            catch { }
         }
 
         private void ShowLogin()

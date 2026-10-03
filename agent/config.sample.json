@@ -6,5 +6,10 @@
   "stationPort": 3987,
   "updateCheckMinutes": 60,
   "githubRepo": "markclarus1990/gamepoint",
-  "githubToken": ""
+  "githubToken": "",
+  "minimizeOnLock": true,
+  "killOnExpiry": false,
+  "blockedProcesses": ["javaw", "java", "MinecraftLauncher", "Minecraft", "Minecraft.Windows"],
+  "lockPollMs": 250,
+  "expiryPrePollSecs": 30
 }
