@@ -196,6 +196,34 @@ export const SF_IDS = (conf: "East" | "West") => {
 export const CF_ID = (conf: "East" | "West") => `nba-r3-${conf.toLowerCase()}-cf`;
 export const FINAL_ID = "nba-r4-final";
 
+// ---- Admin-forced East semifinal slots (custom bracket, not natural feeders) ----
+// Natural mapping is sf1 = W(1v8) vs W(4v5), sf2 = W(3v6) vs W(2v7).
+// Admin requested instead:
+//   east-sf1 = Pacers (2v7 side) vs Knicks (4v5 winner) — full forced row.
+//   east-sf2 = 76ers (1v8 winner) vs TBD (winner of Heat vs Wizards 3v6).
+// The guards below keep auto-progression from clobbering these rows:
+//   - east-sf1 is preserved as-is (never overwritten by natural W1v8 vs W4v5).
+//   - east-sf2 keeps 76ers anchored; its TBD slot fills from the 3v6 winner.
+export const FORCED_EAST_SF1_TEAMS = ["Indiana Pacers", "New York Knicks"] as const;
+export const FORCED_EAST_SF2_ANCHOR = "Philadelphia 76ers";
+
+function teamSet2(a1: string | null, a2: string | null) {
+  return [a1, a2].filter(Boolean).sort();
+}
+
+/** True when a scheduled row is the forced Pacers-vs-Knicks east-sf1. */
+export function isForcedEastSf1(matchId: string, team1: string | null, team2: string | null) {
+  if (matchId !== "nba-r2-east-sf1") return false;
+  const s = teamSet2(team1, team2);
+  return s.length === 2 && s[0] === "Indiana Pacers" && s[1] === "New York Knicks";
+}
+
+/** True when a scheduled row is the forced 76ers-anchored east-sf2 (other side TBD or filled). */
+export function isForcedEastSf2(matchId: string, team1: string | null, team2: string | null) {
+  if (matchId !== "nba-r2-east-sf2") return false;
+  return team1 === FORCED_EAST_SF2_ANCHOR || team2 === FORCED_EAST_SF2_ANCHOR;
+}
+
 type Participant = {
   team: string;
   user_id: string | null;
@@ -433,6 +461,60 @@ export async function advanceBracket(
         (existing.seed1 ?? null) === (wr.seed1 as number | null) &&
         (existing.seed2 ?? null) === (wr.seed2 as number | null);
       if (same) continue;
+      // Admin-forced East SFs: never overwrite with natural feeders.
+      if (isForcedEastSf1(wid, existing.team1, existing.team2)) continue;
+      if (isForcedEastSf2(wid, existing.team1, existing.team2)) {
+        // Forced 76ers-anchored sf2: only fill its TBD slot from the 3v6
+        // winner (wanted team1). Never pull in the 2v7 winner (Pacers side
+        // already plays in sf1) and never replace the 76ers anchor.
+        const anchorIs1 = existing.team1 === FORCED_EAST_SF2_ANCHOR;
+        const anchorIs2 = existing.team2 === FORCED_EAST_SF2_ANCHOR;
+        const tbdIs1 = !existing.team1;
+        const tbdIs2 = !existing.team2;
+        const w3v6team = wr.team1 as string | null;
+        if ((tbdIs1 || tbdIs2) && w3v6team && w3v6team !== FORCED_EAST_SF2_ANCHOR) {
+          const fillSlotIs1 = tbdIs1;
+          const alreadyThere =
+            (!fillSlotIs1 && existing.team2 === w3v6team) || (fillSlotIs1 && existing.team1 === w3v6team);
+          if (!alreadyThere) {
+            const patch: Record<string, unknown> = { status: "scheduled", winner: null, winner_user_id: null, loser: null, player_a_team: null };
+            if (fillSlotIs1) {
+              patch.team1 = w3v6team;
+              patch.team1_user_id = wr.team1_user_id as string | null;
+              patch.seed1 = wr.seed1 as number | null;
+            } else {
+              patch.team2 = w3v6team;
+              patch.team2_user_id = wr.team1_user_id as string | null;
+              patch.seed2 = wr.seed1 as number | null;
+            }
+            const { error } = await db.from("tournament_matches").update(patch).eq("match_id", wid);
+            if (!error) {
+              createdNext.push(wid);
+              try {
+                await db.from("tournament_games").delete().eq("match_id", wid);
+              } catch {}
+            }
+          }
+        } else if (!tbdIs1 && !tbdIs2) {
+          // Full forced row (76ers vs filled): sync user_ids/seeds if the
+          // filled side matches the 3v6 winner, else preserve as-is.
+          const filledSide = anchorIs1 ? existing.team2 : anchorIs2 ? existing.team1 : null;
+          if (filledSide && filledSide === w3v6team) {
+            const patch: Record<string, unknown> = {};
+            if (anchorIs1) {
+              patch.team2_user_id = wr.team1_user_id as string | null;
+              patch.seed2 = wr.seed1 as number | null;
+            } else if (anchorIs2) {
+              patch.team1_user_id = wr.team1_user_id as string | null;
+              patch.seed1 = wr.seed1 as number | null;
+            }
+            if (Object.keys(patch).length > 0) {
+              await db.from("tournament_matches").update(patch).eq("match_id", wid);
+            }
+          }
+        }
+        continue;
+      }
       // Refresh participants on scheduled downstream (team change via override,
       // or a second feeder filling the TBD slot of a partial row)
       const { error } = await db
@@ -513,6 +595,39 @@ export async function resetMatchAndDownstream(
   for (const dId of downstream) {
     const exists = fresh.find((x) => x.match_id === dId);
     if (!exists || exists.status === "completed") continue;
+    // Admin-forced East SFs survive resets (e.g. resetting the Heat/Wizards
+    // series must not delete the 76ers-anchored sf2 or revert Pacers-Knicks).
+    if (isForcedEastSf1(dId, exists.team1, exists.team2)) continue;
+    if (isForcedEastSf2(dId, exists.team1, exists.team2)) {
+      const want = wantedById.get(dId) as Record<string, unknown> | undefined;
+      const w3v6 = want?.team1 as string | null | undefined;
+      const tbdIs1 = !exists.team1;
+      const tbdIs2 = !exists.team2;
+      if ((tbdIs1 || tbdIs2) && w3v6 && w3v6 !== FORCED_EAST_SF2_ANCHOR) {
+        const patch: Record<string, unknown> = {
+          status: "scheduled",
+          winner: null,
+          winner_user_id: null,
+          loser: null,
+          player_a_team: null,
+        };
+        if (tbdIs2) {
+          patch.team2 = w3v6;
+          patch.team2_user_id = want?.team1_user_id as string | null;
+          patch.seed2 = want?.seed1 as number | null;
+        } else {
+          patch.team1 = w3v6;
+          patch.team1_user_id = want?.team1_user_id as string | null;
+          patch.seed1 = want?.seed1 as number | null;
+        }
+        await db.from("tournament_matches").update(patch).eq("match_id", dId);
+        try {
+          await db.from("tournament_games").delete().eq("match_id", dId);
+        } catch {}
+        updatedDownstream.push(dId);
+      }
+      continue;
+    }
     const want = wantedById.get(dId) as Record<string, unknown> | undefined;
     if (!want) {
       await db.from("tournament_matches").delete().eq("match_id", dId);

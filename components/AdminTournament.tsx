@@ -38,6 +38,7 @@ export default function AdminTournament({ notify }: { notify: (msg: string) => v
   const [gamePick, setGamePick] = useState<Record<string, string>>({});
   const [confirmReset, setConfirmReset] = useState<string | null>(null);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
+  const [confirmForceSf, setConfirmForceSf] = useState(false);
 
   // notify is an inline (unstable) fn in the parent dashboard which re-renders
   // every 5s from its polling interval — keep it in a ref so our fetch effect
@@ -262,6 +263,35 @@ export default function AdminTournament({ notify }: { notify: (msg: string) => v
     }
   };
 
+  const forceRequestedSemis = async () => {
+    setSavingId("__force_sf__");
+    try {
+      const data = await adminPost({
+        action: "force_semifinal",
+        semifinals: [
+          { conference: "West", slot: "sf1", team1: "Golden State Warriors", team2: "Portland Trail Blazers" },
+          { conference: "East", slot: "sf1", team1: "Indiana Pacers", team2: "New York Knicks" },
+          { conference: "East", slot: "sf2", team1: "Philadelphia 76ers", team2: "TBD" },
+        ],
+        clear_other_sf: false,
+      });
+      if (data.error) {
+        notifyRef.current(data.error as string);
+      } else {
+        const forced = (data.forced as string[])?.join("; ") || "no change";
+        const skipped = (data.skipped as string[])?.length ? ` (already set: ${(data.skipped as string[]).join(", ")})` : "";
+        const cleared = (data.deletedStale as string[])?.length ? ` Cleared: ${(data.deletedStale as string[]).join(", ")}` : "";
+        notifyRef.current(`Semifinals forced — ${forced}${skipped}.${cleared}`);
+        setConfirmForceSf(false);
+        await load(false);
+      }
+    } catch {
+      notifyRef.current("Failed to force semifinals");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-[#0f1b2e] border border-white/5 rounded-2xl p-8 text-center text-sm text-zinc-500">
@@ -331,6 +361,35 @@ export default function AdminTournament({ notify }: { notify: (msg: string) => v
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 disabled:opacity-50"
             >
               <RotateCcw className="w-4 h-4" /> Reset all results
+            </button>
+          )}
+          {confirmForceSf ? (
+            <span className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-amber-400 font-semibold">
+                Force West: Warriors vs Blazers + East: Pacers vs Knicks &amp; 76ers vs TBD (MIA/WAS winner)?
+              </span>
+              <button
+                onClick={forceRequestedSemis}
+                disabled={savingId === "__force_sf__"}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-40"
+              >
+                {savingId === "__force_sf__" ? "Forcing…" : "Yes, force"}
+              </button>
+              <button
+                onClick={() => setConfirmForceSf(false)}
+                className="px-3 py-1.5 rounded-lg text-xs bg-zinc-800 text-zinc-300"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setConfirmForceSf(true)}
+              disabled={refreshing}
+              title="West: Warriors vs Blazers, East: Pacers vs Knicks"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 disabled:opacity-50"
+            >
+              <Trophy className="w-4 h-4" /> Force requested Semis
             </button>
           )}
           <button
