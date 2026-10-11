@@ -9,6 +9,7 @@ export interface User {
   time_credit_minutes?: number;
   is_admin?: boolean;
   created_at?: string;
+  titles?: string[];
 }
 
 export interface Session {

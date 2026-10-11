@@ -13,11 +13,20 @@ import {
   Search,
 } from "lucide-react";
 import Footer from "@/app/components/Footer";
+import { getTeamLogo } from "@/lib/constants/nba";
 
 type Player = {
   name: string;
   total_minutes: number;
   avatar_url: string;
+};
+
+type ChampionEntry = {
+  userId: string;
+  name: string;
+  avatar_url: string | null;
+  titles: string[];
+  team?: string | null;
 };
 
 type SearchResult = Player & { rank: number };
@@ -55,6 +64,7 @@ const formatTime = (mins: number) => {
 
 export default function LandingPage() {
   const [topPlayers, setTopPlayers] = useState<Player[]>([]);
+  const [champions, setChampions] = useState<ChampionEntry[]>([]);
   const [query, setQuery] = useState("");
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -67,7 +77,16 @@ export default function LandingPage() {
         if (Array.isArray(data)) setTopPlayers(data);
       })
       .catch(() => {});
+    fetch("/api/champions")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.hallOfFame)) setChampions(data.hallOfFame);
+      })
+      .catch(() => {});
   }, []);
+
+  const isChampion = (name: string) =>
+    champions.some((c) => c.name.toLowerCase() === name.toLowerCase());
 
   const handleSearch = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -232,6 +251,69 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* HALL OF FAME — SEASON 1 CHAMPIONS */}
+      <section id="hall-of-fame" className="py-20 md:py-28 px-4 bg-zinc-950">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 backdrop-blur-md px-4 py-1.5 text-sm text-yellow-400 mb-4">
+              <Trophy className="w-3.5 h-3.5" /> Hall of Fame
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-3">
+              Season 1 <span className="text-yellow-400">Champions</span>
+            </h2>
+            <p className="text-gray-300 max-w-xl mx-auto">
+              Crowned champions of GamePoint tournaments.
+            </p>
+          </div>
+
+          {champions.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm">
+              No champions crowned yet — be the first.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              {champions.map((c) => (
+                <div
+                  key={c.userId}
+                  className="rounded-2xl border border-yellow-500/30 bg-gradient-to-br from-yellow-500/10 via-zinc-900/60 to-zinc-900/60 backdrop-blur-md p-6 text-center shadow-lg shadow-yellow-500/5"
+                >
+                  <div className="flex items-center justify-center gap-3 mb-4">
+                    <img
+                      src={c.avatar_url || "https://placehold.co/100x100/png"}
+                      alt={c.name}
+                      className="w-20 h-20 rounded-full object-cover border-4 border-yellow-400 shadow-xl shadow-yellow-500/30"
+                    />
+                    {c.team && (
+                      <img
+                        src={getTeamLogo(c.team)}
+                        alt={c.team}
+                        loading="lazy"
+                        className="w-12 h-12 object-contain bg-white rounded-full p-1 border-2 border-yellow-500/50"
+                        onError={(e) => ((e.currentTarget.style.display = "none"))}
+                      />
+                    )}
+                  </div>
+                  <div className="text-white font-black text-lg">{c.name}</div>
+                  {c.team && (
+                    <div className="text-gray-400 text-xs mt-1">{c.team}</div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+                    {c.titles.map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center gap-1 rounded-full border border-yellow-500/40 bg-yellow-500/10 px-3 py-1 text-xs font-bold text-yellow-300"
+                      >
+                        🏆 {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* TOP PLAYERS */}
       <section id="top-players" className="py-20 md:py-28 px-4 bg-zinc-950">
         <div className="max-w-6xl mx-auto">
@@ -259,7 +341,7 @@ export default function LandingPage() {
                   className="w-20 h-20 rounded-full object-cover border-4 border-purple-500 shadow-xl shadow-purple-500/30"
                 />
                 <div className="text-white font-bold truncate max-w-[120px] mt-2">
-                  {topPlayers[1].name}
+                  {topPlayers[1].name}{isChampion(topPlayers[1].name) && " 🏆"}
                 </div>
                 <div className="text-cyan-400 text-sm font-semibold">
                   {formatTime(topPlayers[1].total_minutes)}
@@ -281,7 +363,7 @@ export default function LandingPage() {
                   />
                 </div>
                 <div className="text-white font-black text-lg truncate max-w-[120px] mt-2">
-                  {topPlayers[0].name}
+                  {topPlayers[0].name}{isChampion(topPlayers[0].name) && " 🏆"}
                 </div>
                 <div className="text-cyan-400 text-base font-bold">
                   {formatTime(topPlayers[0].total_minutes)}
@@ -300,7 +382,7 @@ export default function LandingPage() {
                   className="w-20 h-20 rounded-full object-cover border-4 border-orange-500 shadow-xl shadow-orange-500/30"
                 />
                 <div className="text-white font-bold truncate max-w-[120px] mt-2">
-                  {topPlayers[2].name}
+                  {topPlayers[2].name}{isChampion(topPlayers[2].name) && " 🏆"}
                 </div>
                 <div className="text-cyan-400 text-sm font-semibold">
                   {formatTime(topPlayers[2].total_minutes)}
@@ -371,7 +453,7 @@ export default function LandingPage() {
                       className="w-10 h-10 rounded-full object-cover border-2 border-zinc-700"
                     />
                     <span className="text-white font-semibold text-sm flex-1 truncate">
-                      {player.name}
+                      {player.name}{isChampion(player.name) && " 🏆"}
                     </span>
                     <span className="text-cyan-400 text-xs font-semibold whitespace-nowrap">
                       {formatTime(player.total_minutes || 0)}

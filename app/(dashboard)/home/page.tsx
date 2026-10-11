@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { titlesForUser } from "@/lib/constants/champions";
 
 type User = {
   id: string;
@@ -65,6 +66,7 @@ export default function Home() {
   const [resumeSeconds, setResumeSeconds] = useState(0);
 
   const [payment, setPayment] = useState<"points" | "gfunds">("points");
+  const [titles, setTitles] = useState<string[]>([]);
   const [amountInput, setAmountInput] = useState("");
   const [stations, setStations] = useState<StationInfo[]>([]);
   const [stationName, setStationName] = useState("");
@@ -113,7 +115,14 @@ export default function Home() {
     const parsed = JSON.parse(stored);
 
     const init = async () => {
-      await loadUser(parsed.id);
+      const u = await loadUser(parsed.id);
+      try {
+        const res = await fetch("/api/champions");
+        const data = await res.json();
+        setTitles(titlesForUser(u?.id, data.nba?.userId ?? null));
+      } catch {
+        setTitles([]);
+      }
       await loadActive(parsed.id);
       await loadStations();
       setLoading(false);
@@ -232,6 +241,18 @@ export default function Home() {
             <div>
               <div className="text-xs text-gray-400">Player</div>
               <div className="text-lg font-semibold">{user?.name}</div>
+              {titles.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {titles.map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 rounded-full border border-yellow-500/40 bg-yellow-500/10 px-2 py-0.5 text-[10px] font-bold text-yellow-300"
+                    >
+                      🏆 {t}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
