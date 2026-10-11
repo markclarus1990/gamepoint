@@ -198,27 +198,27 @@ export const FINAL_ID = "nba-r4-final";
 
 // ---- Admin-forced East semifinal slots (custom bracket, not natural feeders) ----
 // Natural mapping is sf1 = W(1v8) vs W(4v5), sf2 = W(3v6) vs W(2v7).
-// Admin requested instead:
-//   east-sf1 = Pacers (2v7 side) vs Knicks (4v5 winner) — full forced row.
-//   east-sf2 = 76ers (1v8 winner) vs TBD (winner of Heat vs Wizards 3v6).
+// Admin requested instead (76ers/Knicks swapped):
+//   east-sf1 = Pacers (2v7 side) vs 76ers (1v8 winner) — full forced row.
+//   east-sf2 = Knicks (4v5 winner) vs Heat (custom — forced over the 3v6 winner).
 // The guards below keep auto-progression from clobbering these rows:
 //   - east-sf1 is preserved as-is (never overwritten by natural W1v8 vs W4v5).
-//   - east-sf2 keeps 76ers anchored; its TBD slot fills from the 3v6 winner.
-export const FORCED_EAST_SF1_TEAMS = ["Indiana Pacers", "New York Knicks"] as const;
-export const FORCED_EAST_SF2_ANCHOR = "Philadelphia 76ers";
+//   - east-sf2 keeps Knicks anchored; its pairing is preserved as-is once filled.
+export const FORCED_EAST_SF1_TEAMS = ["Indiana Pacers", "Philadelphia 76ers"] as const;
+export const FORCED_EAST_SF2_ANCHOR = "New York Knicks";
 
 function teamSet2(a1: string | null, a2: string | null) {
   return [a1, a2].filter(Boolean).sort();
 }
 
-/** True when a scheduled row is the forced Pacers-vs-Knicks east-sf1. */
+/** True when a scheduled row is the forced Pacers-vs-76ers east-sf1. */
 export function isForcedEastSf1(matchId: string, team1: string | null, team2: string | null) {
   if (matchId !== "nba-r2-east-sf1") return false;
   const s = teamSet2(team1, team2);
-  return s.length === 2 && s[0] === "Indiana Pacers" && s[1] === "New York Knicks";
+  return s.length === 2 && s[0] === "Indiana Pacers" && s[1] === "Philadelphia 76ers";
 }
 
-/** True when a scheduled row is the forced 76ers-anchored east-sf2 (other side TBD or filled). */
+/** True when a scheduled row is the forced Knicks-anchored east-sf2 (other side TBD or filled). */
 export function isForcedEastSf2(matchId: string, team1: string | null, team2: string | null) {
   if (matchId !== "nba-r2-east-sf2") return false;
   return team1 === FORCED_EAST_SF2_ANCHOR || team2 === FORCED_EAST_SF2_ANCHOR;
@@ -464,9 +464,9 @@ export async function advanceBracket(
       // Admin-forced East SFs: never overwrite with natural feeders.
       if (isForcedEastSf1(wid, existing.team1, existing.team2)) continue;
       if (isForcedEastSf2(wid, existing.team1, existing.team2)) {
-        // Forced 76ers-anchored sf2: only fill its TBD slot from the 3v6
+        // Forced Knicks-anchored sf2: only fill its TBD slot from the 3v6
         // winner (wanted team1). Never pull in the 2v7 winner (Pacers side
-        // already plays in sf1) and never replace the 76ers anchor.
+        // already plays in sf1) and never replace the Knicks anchor.
         const anchorIs1 = existing.team1 === FORCED_EAST_SF2_ANCHOR;
         const anchorIs2 = existing.team2 === FORCED_EAST_SF2_ANCHOR;
         const tbdIs1 = !existing.team1;
@@ -496,7 +496,7 @@ export async function advanceBracket(
             }
           }
         } else if (!tbdIs1 && !tbdIs2) {
-          // Full forced row (76ers vs filled): sync user_ids/seeds if the
+          // Full forced row (Knicks vs filled): sync user_ids/seeds if the
           // filled side matches the 3v6 winner, else preserve as-is.
           const filledSide = anchorIs1 ? existing.team2 : anchorIs2 ? existing.team1 : null;
           if (filledSide && filledSide === w3v6team) {
@@ -595,8 +595,8 @@ export async function resetMatchAndDownstream(
   for (const dId of downstream) {
     const exists = fresh.find((x) => x.match_id === dId);
     if (!exists || exists.status === "completed") continue;
-    // Admin-forced East SFs survive resets (e.g. resetting the Heat/Wizards
-    // series must not delete the 76ers-anchored sf2 or revert Pacers-Knicks).
+    // Admin-forced East SFs survive resets (e.g. resetting a First Round
+    // series must not delete the Knicks-anchored sf2 or revert Pacers-76ers).
     if (isForcedEastSf1(dId, exists.team1, exists.team2)) continue;
     if (isForcedEastSf2(dId, exists.team1, exists.team2)) {
       const want = wantedById.get(dId) as Record<string, unknown> | undefined;

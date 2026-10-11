@@ -270,8 +270,8 @@ export default function AdminTournament({ notify }: { notify: (msg: string) => v
         action: "force_semifinal",
         semifinals: [
           { conference: "West", slot: "sf1", team1: "Golden State Warriors", team2: "Portland Trail Blazers" },
-          { conference: "East", slot: "sf1", team1: "Indiana Pacers", team2: "New York Knicks" },
-          { conference: "East", slot: "sf2", team1: "Philadelphia 76ers", team2: "TBD" },
+          { conference: "East", slot: "sf1", team1: "Indiana Pacers", team2: "Philadelphia 76ers" },
+          { conference: "East", slot: "sf2", team1: "New York Knicks", team2: "Miami Heat" },
         ],
         clear_other_sf: false,
       });
@@ -366,7 +366,7 @@ export default function AdminTournament({ notify }: { notify: (msg: string) => v
           {confirmForceSf ? (
             <span className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-amber-400 font-semibold">
-                Force West: Warriors vs Blazers + East: Pacers vs Knicks &amp; 76ers vs TBD (MIA/WAS winner)?
+                Force West: Warriors vs Blazers + East: Pacers vs 76ers &amp; Knicks vs Heat?
               </span>
               <button
                 onClick={forceRequestedSemis}
@@ -386,7 +386,7 @@ export default function AdminTournament({ notify }: { notify: (msg: string) => v
             <button
               onClick={() => setConfirmForceSf(true)}
               disabled={refreshing}
-              title="West: Warriors vs Blazers, East: Pacers vs Knicks"
+              title="West: Warriors vs Blazers, East: Pacers vs 76ers + Knicks vs Heat"
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 disabled:opacity-50"
             >
               <Trophy className="w-4 h-4" /> Force requested Semis

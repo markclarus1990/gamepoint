@@ -15,12 +15,12 @@ import { NBA_TEAMS, TEAM_CONFERENCES } from "@/lib/constants/nba";
 import { ActivityLogRepository } from "@/lib/repositories/ActivityLogRepository";
 
 // Default requested semifinal pairings (admin override):
-//   West: Warriors vs Blazers, East: Pacers vs Knicks.
+//   West: Warriors vs Blazers, East: Pacers vs 76ers.
 // Order here matches the current persisted rows so re-running is a no-op
 // (matchup equality is order-insensitive — see forceSemifinals).
 const DEFAULT_FORCE_SEMIFINALS = [
   { conference: "West", team1: "Golden State Warriors", team2: "Portland Trail Blazers" },
-  { conference: "East", team1: "Indiana Pacers", team2: "New York Knicks" },
+  { conference: "East", team1: "Indiana Pacers", team2: "Philadelphia 76ers" },
 ] as const;
 
 const activityLog = new ActivityLogRepository();
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
 
     // ---- FORCE SEMIFINALS (admin override: set SF pairings directly) ----
     // Body: { action: "force_semifinal", semifinals?: [{conference, team1, team2}], clear_other_sf?: boolean }
-    // Defaults to Warriors-Blazers (West) + Pacers-Knicks (East) when omitted.
+    // Defaults to Warriors-Blazers (West) + Pacers-76ers (East) when omitted.
     // First Round rows are left untouched. Touched SFs are reset to scheduled
     // (toss + games wiped) and stale downstream CF/Final rows are cleared.
     if (action === "force_semifinal" || action === "force_semifinals") {
@@ -491,7 +491,7 @@ async function forceSemifinals(body: Record<string, unknown>, actor: string) {
   }
 
   // Normalize + validate conferences. team2 may be TBD (null) for partial
-  // slots awaiting a First Round winner (e.g. 76ers vs winner of Heat/Wizards).
+  // slots awaiting a First Round winner (e.g. Knicks vs winner of Heat/Wizards).
   // Optional slot: "sf1" (default) or "sf2".
   const inputs: { conference: string; team1: string; team2: string | null; slot: string }[] = [];
   for (const s of raw) {
