@@ -458,6 +458,7 @@ internal static class Program
         private LockForm? _lockForm;
         private CountdownForm? _countdownForm;
         private Status? _current;
+        private bool _restarting;
         private DateTime _lockHeldUntil = DateTime.MinValue;
         private DateTime _lockSince = DateTime.MinValue;
         private bool _remoteControl;
@@ -1361,6 +1362,79 @@ internal static class Program
                 StationName = _cfg.StationName,
                 UserName = ""
             });
+        }
+
+        /// <summary>
+        /// Full widget restart: dispose the current CountdownForm and build a
+        /// fresh one at the same screen position, repopulated from the latest
+        /// known status, then re-poll. When locked (no widget expected) it
+        /// only re-polls.
+        /// </summary>
+        public async Task RestartCountdownAsync(Point? keepLocation = null)
+        {
+            if (_restarting) return;
+            _restarting = true;
+            try
+            {
+                Dbg("Widget full restart requested");
+                Point? pos = keepLocation;
+                try
+                {
+                    var old = _countdownForm;
+                    if (pos is null && old is not null && !old.IsDisposed)
+                        pos = old.Location;
+                    _countdownForm = null;
+                    if (old is not null && !old.IsDisposed)
+                    {
+                        old.AllowClose = true;
+                        try { old.Hide(); } catch { }
+                        try { old.Close(); } catch { }
+                        try { old.Dispose(); } catch { }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Dbg($"Widget teardown failed: {ex.Message}");
+                }
+
+                var st = _current;
+                if (st is not null && !st.Locked && st.RemainingSeconds > 0)
+                {
+                    try
+                    {
+                        var fresh = new CountdownForm(this);
+                        if (pos is Point p)
+                        {
+                            try
+                            {
+                                var screen = Screen.PrimaryScreen?.WorkingArea ?? Screen.GetBounds(Point.Empty);
+                                var x = Math.Clamp(p.X, screen.Left, Math.Max(screen.Left, screen.Right - fresh.Width));
+                                var y = Math.Clamp(p.Y, screen.Top, Math.Max(screen.Top, screen.Bottom - fresh.Height));
+                                fresh.Location = new Point(x, y);
+                            }
+                            catch { }
+                        }
+                        _countdownForm = fresh;
+                        fresh.Show(this);
+                        fresh.SetTime(st.RemainingSeconds);
+                        fresh.SetLabel(st.StationName, st.UserName);
+                        fresh.SetBalances(st.UserGfunds, st.UserPoints, st.UserTimeCredit);
+                        fresh.SetAvatar(st.UserAvatar);
+                        if (_pendingUpdate != null && !string.IsNullOrWhiteSpace(_pendingUpdate.DownloadUrl))
+                            fresh.SetUpdateStatus($"v{_pendingUpdate.Version} available", true, _pendingUpdate.Version, _pendingUpdate.DownloadUrl);
+                    }
+                    catch (Exception ex)
+                    {
+                        Dbg($"Widget recreate failed: {ex.Message}");
+                    }
+                }
+
+                try { await PollAsync(); } catch { }
+            }
+            finally
+            {
+                _restarting = false;
+            }
         }
 
         public int[] AnnounceMinutes =>
@@ -2696,7 +2770,6 @@ try
         private bool _minimized;
         private bool _hasUser;
         private bool _dragging;
-        private bool _reloading;
         private Point _dragOffset;
 
         /// <summary>
@@ -2894,7 +2967,7 @@ try
             };
             var reloadTip = new ToolTip();
             reloadTip.SetToolTip(_btnReload, "Reload (refresh status)");
-            _btnReload.Click += async (_, _) => await ReloadAsync();
+            _btnReload.Click += (_, _) => Reload();
 
             _lblUpdate = new Label
             {
@@ -3128,75 +3201,24 @@ try
         }
 
         /// <summary>
-        /// Manual refresh: re-poll the server for time/balances/avatar, then
-        /// rebuild the buttons locally if the server still returns nulls.
-        /// The button stays enabled even in logout-only state so users can
-        /// recover without killing the agent.
+        /// Manual full restart: dispose this widget and build a fresh one at
+        /// the same position (done controller-side so no code runs on the
+        /// disposed instance afterwards).
         /// </summary>
-        private async Task ReloadAsync()
+        private void Reload()
         {
-            if (_reloading) return;
-            _reloading = true;
-            var oldText = _btnReload.Text;
+            var pos = Location;
+            Dbg("Widget reload clicked — full restart");
             try
             {
-                _btnReload.Enabled = false;
-                _btnReload.Text = "…";
-                Dbg("Widget reload clicked");
-                try
-                {
-                    await _controller.PollAsync();
-                }
-                catch (Exception ex)
-                {
-                    Dbg($"Widget reload poll failed: {ex.Message}");
-                }
-                if (!_hasUser)
-                    RebuildButtons();
-                try { EnsureTopMostNoActivate(); } catch { }
+                if (IsHandleCreated)
+                    BeginInvoke(new Func<Task>(() => _controller.RestartCountdownAsync(pos)));
+                else
+                    _ = _controller.RestartCountdownAsync(pos);
             }
-            finally
+            catch
             {
-                _btnReload.Text = oldText;
-                _btnReload.Enabled = true;
-                _reloading = false;
-            }
-        }
-
-        /// <summary>
-        /// Local fallback: if a session is active but balances came back null
-        /// (login/resume/start posts timer-only updates), optimistically
-        /// restore the buttons so the widget is usable until the next poll.
-        /// </summary>
-        private void RebuildButtons()
-        {
-            try
-            {
-                if (IsDisposed || !IsHandleCreated) return;
-                if (_minimized) SetMinimized(false);
-                var hasSession = _controller.CurrentRemainingSeconds > 0
-                    || !string.IsNullOrEmpty(_controller.CurrentUserId);
-                if (!hasSession) return;
-                if (!_hasUser)
-                {
-                    _hasUser = true;
-                    Dbg("Widget buttons rebuilt locally (optimistic)");
-                }
-                if (!_minimized)
-                {
-                    _btnAddTime.Visible = true;
-                    _btnShareTime.Visible = true;
-                    _btnChangePin.Visible = true;
-                    _btnLogout.Visible = true;
-                    _btnReload.Visible = true;
-                    _btnMin.Visible = true;
-                }
-                // Refresh label/balances text from the latest known status.
-                _ = _controller.PollAsync();
-            }
-            catch (Exception ex)
-            {
-                Dbg($"Widget rebuild failed: {ex.Message}");
+                _ = _controller.RestartCountdownAsync(pos);
             }
         }
 
