@@ -507,6 +507,25 @@ internal static class Program
                 {
                     _current.RemainingSeconds -= 1;
                     _countdownForm?.SetTime(_current.RemainingSeconds);
+                    // Watchdog: if the widget was hidden/disposed between polls
+                    // (e.g. stray Alt+F4), bring it back within 1s.
+                    try
+                    {
+                        if (_countdownForm is null || _countdownForm.IsDisposed)
+                        {
+                            _countdownForm = new CountdownForm(this);
+                            _countdownForm.Show(this);
+                            _countdownForm.SetTime(_current.RemainingSeconds);
+                            _countdownForm.SetLabel(_current.StationName, _current.UserName);
+                            _countdownForm.SetBalances(_current.UserGfunds, _current.UserPoints, _current.UserTimeCredit);
+                            _countdownForm.SetAvatar(_current.UserAvatar);
+                        }
+                        else if (!_countdownForm.Visible)
+                        {
+                            _countdownForm.Show();
+                        }
+                    }
+                    catch { }
                     UpdatePollSpeed();
                     if (_current.RemainingSeconds <= 0)
                     {
@@ -791,6 +810,8 @@ internal static class Program
                     {
                         if (_lockForm is not null && !_lockForm.IsDisposed)
                             _lockForm.AllowClose = true;
+                        if (_countdownForm is not null && !_countdownForm.IsDisposed)
+                            _countdownForm.AllowClose = true;
                     }
                     catch { }
                     Dbg($"[STOP OLD AGENT] update v{info.Version} staged — exiting pid={Environment.ProcessId} current={Updater.CurrentVersion}");
@@ -1304,12 +1325,28 @@ internal static class Program
         {
             _lockHeldUntil = DateTime.MinValue;
             Dbg($"UnlockSession remaining={remainingSeconds} user={userName}");
+            // Preserve last known balances: login/resume/start only know the
+            // timer, but the widget buttons (Add/Share/Change PIN) are gated on
+            // balances. Passing nulls would hide them until the next poll.
+            var prev = _current;
             ApplyStatus(new Status
             {
                 Locked = false,
                 RemainingSeconds = remainingSeconds,
                 StationName = _cfg.StationName,
-                UserName = userName
+                UserName = userName,
+                UserId = prev?.UserId,
+                UserPoints = prev?.UserPoints,
+                UserGfunds = prev?.UserGfunds,
+                UserAvatar = prev?.UserAvatar,
+                UserTimeCredit = prev?.UserTimeCredit,
+            });
+            // Fetch the full status (balances/avatar) ASAP so the widget
+            // restores without a manual reload.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(800);
+                try { await PollAsync(); } catch { }
             });
         }
 
@@ -1577,6 +1614,12 @@ try
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             try { KeyboardHook.Uninstall(); } catch { }
+            try
+            {
+                if (_countdownForm is not null && !_countdownForm.IsDisposed)
+                    _countdownForm.AllowClose = true;
+            }
+            catch { }
             base.OnFormClosed(e);
         }
 
@@ -1588,6 +1631,18 @@ try
             }
 
             var wasLocked = _current?.Locked ?? true;
+            var prevStatus = _current;
+            // Don't let a balance-less status wipe known balances (UnlockSession
+            // posts timer-only updates). Keep previous values so widget buttons
+            // don't collapse to logout-only.
+            if (!st.Locked && (st.UserGfunds is null || st.UserPoints is null) && prevStatus is not null && !prevStatus.Locked)
+            {
+                st.UserId ??= prevStatus.UserId;
+                st.UserPoints ??= prevStatus.UserPoints;
+                st.UserGfunds ??= prevStatus.UserGfunds;
+                st.UserAvatar ??= prevStatus.UserAvatar;
+                st.UserTimeCredit ??= prevStatus.UserTimeCredit;
+            }
             _current = st;
             var lf = _lockForm;
             Dbg($"ApplyStatus locked={st.Locked} wasLocked={wasLocked} lockForm={((lf is null ? "null" : PanelState(lf)))} countdown={( _countdownForm is null ? "null" : PanelState(_countdownForm))} loginPanel={(lf is null ? "n/a" : PanelState(lf.LoginPanel))} paymentPanel={(lf is null ? "n/a" : PanelState(lf.PaymentPanel))} loginCount={(lf is null ? -1 : lf.LoginPanel.Controls.Count)} payCount={(lf is null ? -1 : lf.PaymentPanel.Controls.Count)}");
@@ -2634,13 +2689,57 @@ try
         private readonly Button _btnChangePin;
         private readonly Button _btnLogout;
         private readonly Button _btnMin;
+        private readonly Button _btnReload;
         private readonly Label _lblUpdate;
         private readonly Button _btnUpdate;
         private readonly Button _btnCheckUpdate;
         private bool _minimized;
         private bool _hasUser;
         private bool _dragging;
+        private bool _reloading;
         private Point _dragOffset;
+
+        /// <summary>
+        /// When false (default), user-initiated closes (Alt+F4 / system menu)
+        /// are vetoed so a stray Alt+F4 meant for the browser can't kill the
+        /// widget. Set true only for real shutdown/update restart.
+        /// </summary>
+        public bool AllowClose { get; set; }
+
+        /// <summary>
+        /// Never steal focus: Alt+F4 must go to the browser/game behind the
+        /// widget, not to the widget itself. Clicks still work.
+        /// </summary>
+        protected override bool ShowWithoutActivation => true;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW (hide from Alt+Tab)
+                return cp;
+            }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_MOUSEACTIVATE = 0x21;
+            if (m.Msg == WM_MOUSEACTIVATE)
+            {
+                m.Result = new IntPtr(3); // MA_NOACTIVATE: process click, don't activate
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!AllowClose && e.CloseReason == CloseReason.UserClosing)
+                e.Cancel = true;
+            base.OnFormClosing(e);
+        }
 
         public CountdownForm(ControllerForm controller)
         {
@@ -2781,6 +2880,21 @@ try
                 FlatAppearance = { BorderSize = 0 }
             };
             _btnMin.Click += (_, _) => SetMinimized(true);
+            _btnReload = new Button
+            {
+                Text = "⟳",
+                FlatStyle = FlatStyle.Flat,
+                BackColor = C("#1e293b"),
+                ForeColor = Color.White,
+                Font = F(10, FontStyle.Bold),
+                Location = new Point(206, 6),
+                Size = new Size(22, 20),
+                FlatAppearance = { BorderSize = 0 },
+                TabStop = false,
+            };
+            var reloadTip = new ToolTip();
+            reloadTip.SetToolTip(_btnReload, "Reload (refresh status)");
+            _btnReload.Click += async (_, _) => await ReloadAsync();
 
             _lblUpdate = new Label
             {
@@ -2825,6 +2939,7 @@ try
             _lblUpdate.MouseDown += OnDragStart;
             _btnUpdate.MouseDown += OnDragStart;
             _btnCheckUpdate.MouseDown += OnDragStart;
+            _btnReload.MouseDown += OnDragStart;
 
             MouseDown += OnDragStart;
             MouseMove += OnDragMove;
@@ -2843,6 +2958,7 @@ try
             Controls.Add(_btnChangePin);
             Controls.Add(_btnLogout);
             Controls.Add(_btnMin);
+            Controls.Add(_btnReload);
             Controls.Add(_lblUpdate);
             Controls.Add(_btnUpdate);
             Controls.Add(_btnCheckUpdate);
@@ -2902,6 +3018,7 @@ try
                 _btnChangePin.Visible = false;
                 _btnLogout.Visible = false;
                 _btnMin.Visible = false;
+                _btnReload.Visible = false;
                 _lblUpdate.Visible = false;
                 _btnUpdate.Visible = false;
                 _btnCheckUpdate.Visible = false;
@@ -2919,14 +3036,38 @@ try
                 _btnChangePin.Visible = _hasUser;
                 _btnLogout.Visible = true;
                 _btnMin.Visible = true;
+                _btnReload.Visible = true;
                 _lblUpdate.Visible = true;
                 // _btnUpdate visibility managed by SetUpdateStatus; keep as-is unless no update yet
                 _btnCheckUpdate.Visible = true;
                 _label.Font = F(18, FontStyle.Bold);
                 _label.Location = new Point(12, 24);
                 _label.Cursor = Cursors.Default;
-                BringToFront();
+                EnsureTopMostNoActivate();
             }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetWindowPos(
+            IntPtr hWnd, IntPtr hWndInsertAfter,
+            int x, int y, int cx, int cy, uint uFlags);
+
+        /// <summary>
+        /// Keep the widget above browsers/games without stealing focus
+        /// (BringToFront would activate it and re-arm the Alt+F4 trap).
+        /// </summary>
+        private void EnsureTopMostNoActivate()
+        {
+            try
+            {
+                if (!IsHandleCreated || IsDisposed) return;
+                const uint SWP_NOMOVE = 0x0002;
+                const uint SWP_NOSIZE = 0x0001;
+                const uint SWP_NOACTIVATE = 0x0010;
+                SetWindowPos(Handle, new IntPtr(-1), 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            catch { }
         }
 
         public void SetUpdateStatus(string? text, bool hasUpdate, string? version = null, string? url = null)
@@ -2986,6 +3127,79 @@ try
             }
         }
 
+        /// <summary>
+        /// Manual refresh: re-poll the server for time/balances/avatar, then
+        /// rebuild the buttons locally if the server still returns nulls.
+        /// The button stays enabled even in logout-only state so users can
+        /// recover without killing the agent.
+        /// </summary>
+        private async Task ReloadAsync()
+        {
+            if (_reloading) return;
+            _reloading = true;
+            var oldText = _btnReload.Text;
+            try
+            {
+                _btnReload.Enabled = false;
+                _btnReload.Text = "…";
+                Dbg("Widget reload clicked");
+                try
+                {
+                    await _controller.PollAsync();
+                }
+                catch (Exception ex)
+                {
+                    Dbg($"Widget reload poll failed: {ex.Message}");
+                }
+                if (!_hasUser)
+                    RebuildButtons();
+                try { EnsureTopMostNoActivate(); } catch { }
+            }
+            finally
+            {
+                _btnReload.Text = oldText;
+                _btnReload.Enabled = true;
+                _reloading = false;
+            }
+        }
+
+        /// <summary>
+        /// Local fallback: if a session is active but balances came back null
+        /// (login/resume/start posts timer-only updates), optimistically
+        /// restore the buttons so the widget is usable until the next poll.
+        /// </summary>
+        private void RebuildButtons()
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                if (_minimized) SetMinimized(false);
+                var hasSession = _controller.CurrentRemainingSeconds > 0
+                    || !string.IsNullOrEmpty(_controller.CurrentUserId);
+                if (!hasSession) return;
+                if (!_hasUser)
+                {
+                    _hasUser = true;
+                    Dbg("Widget buttons rebuilt locally (optimistic)");
+                }
+                if (!_minimized)
+                {
+                    _btnAddTime.Visible = true;
+                    _btnShareTime.Visible = true;
+                    _btnChangePin.Visible = true;
+                    _btnLogout.Visible = true;
+                    _btnReload.Visible = true;
+                    _btnMin.Visible = true;
+                }
+                // Refresh label/balances text from the latest known status.
+                _ = _controller.PollAsync();
+            }
+            catch (Exception ex)
+            {
+                Dbg($"Widget rebuild failed: {ex.Message}");
+            }
+        }
+
         public void SetLabel(string station, string user)
         {
             _station.Text = $"{station} • {user}";
@@ -3021,15 +3235,20 @@ try
 
         public void SetBalances(int? gfunds, int? points, int? timeCredit = null)
         {
-            _hasUser = gfunds is not null && points is not null;
             if (gfunds is null || points is null)
             {
+                // Server blip returning nulls mid-session must not collapse the
+                // widget to logout-only when we still have a signed-in player.
+                if (!string.IsNullOrEmpty(_controller.CurrentUserId) && _hasUser)
+                    return;
+                _hasUser = false;
                 _balances.Visible = false;
                 _btnAddTime.Visible = false;
                 _btnShareTime.Visible = false;
                 _btnChangePin.Visible = false;
                 return;
             }
+            _hasUser = true;
             var credit = timeCredit ?? 0;
             _balances.Text = $"₱{gfunds} gfunds • {points} pts" + (credit > 0 ? $" • {credit} free min" : "");
             _balances.Visible = true;
