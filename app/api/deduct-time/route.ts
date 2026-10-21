@@ -61,12 +61,12 @@ export async function POST(req: Request) {
 
     const pausedSession = await sessionRepo.findPausedForUser(userId);
 
-    if (pausedSession && pausedSession.resume_seconds > 0) {
+    if (pausedSession && pausedSession.resume_seconds) {
       const reductionSeconds = Math.min(
         remainingToDeductSeconds,
-        pausedSession.resume_seconds
+        pausedSession.resume_seconds as number
       );
-      const newResumeSeconds = pausedSession.resume_seconds - reductionSeconds;
+      const newResumeSeconds = pausedSession.resume_seconds as number - reductionSeconds;
 
       await sessionRepo.updateResumeSeconds(pausedSession.id, newResumeSeconds);
       totalDeductedSeconds += reductionSeconds;
