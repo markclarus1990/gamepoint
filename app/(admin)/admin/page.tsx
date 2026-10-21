@@ -694,6 +694,8 @@ export default function Admin() {
       setShowDeductModal(false);
       setDeductAmount("");
       loadUsers();
+      setSelectedUser(null);
+      setTimeout(() => setSelectedUser(selectedUser), 300);
       loadSessions(selectedUser.id);
       notify(data.error || `Deducted from ${selectedUser.name}.`);
     } finally {
