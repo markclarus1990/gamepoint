@@ -144,4 +144,19 @@ export class UserRepository {
       .eq("id", id);
     if (error) throw error;
   }
+
+  async deductTimeCreditById(id: string, minutes: number): Promise<void> {
+    const { data } = await supabase
+      .from("users")
+      .select("time_credit_minutes")
+      .eq("id", id)
+      .single();
+    const current = data?.time_credit_minutes ?? 0;
+    const newValue = Math.max(0, current - minutes);
+    const { error } = await supabase
+      .from("users")
+      .update({ time_credit_minutes: newValue })
+      .eq("id", id);
+    if (error) throw error;
+  }
 }

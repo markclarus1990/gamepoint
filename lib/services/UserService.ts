@@ -45,4 +45,8 @@ export class UserService {
       return { error: message };
     }
   }
+  async deductTimeCredit(userId: string, minutes: number): Promise<void> {
+    await this.userRepo.deductTimeCreditById(userId, minutes);
+  }
+
 }

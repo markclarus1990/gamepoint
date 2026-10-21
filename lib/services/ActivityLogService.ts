@@ -367,4 +367,15 @@ export class ActivityLogService {
       details: {},
     });
   }
+
+  async logAdminDeductTime(adminName: string, targetName: string, minutes: number): Promise<void> {
+    await this.repo.log({
+      actor_name: adminName,
+      actor_role: "admin",
+      action: "admin_deduct_time",
+      target_type: "user",
+      target_id: targetName,
+      details: { minutes },
+    });
+  }
 }

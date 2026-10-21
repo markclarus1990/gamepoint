@@ -500,7 +500,7 @@ export default function Admin() {
   const [showModal, setShowModal] = useState(false);
   const [showDeductModal, setShowDeductModal] = useState(false);
   const [deductAmount, setDeductAmount] = useState("");
-  const [deductType, setDeductType] = useState<"points" | "gfunds">("points");
+  const [deductType, setDeductType] = useState<"points" | "gfunds" | "time">("points");
   const [loadGfunds, setLoadGfunds] = useState("");
   const [loadPoints, setLoadPoints] = useState("");
   const [stations, setStations] = useState<Station[]>([]);
@@ -673,16 +673,22 @@ export default function Admin() {
     if (!selectedUser || amount <= 0 || busyAction) return;
     setBusyAction("deduct");
     try {
-      const endpoint =
-        deductType === "gfunds" ? "/api/deduct-gfunds" : "/api/deduct-points";
+      let endpoint;
+      let body;
+      if (deductType === "gfunds") {
+        endpoint = "/api/deduct-gfunds";
+        body = { name: selectedUser.name, gfunds: amount };
+      } else if (deductType === "time") {
+        endpoint = "/api/deduct-time";
+        body = { name: selectedUser.name, minutes: amount };
+      } else {
+        endpoint = "/api/deduct-points";
+        body = { name: selectedUser.name, points: amount };
+      }
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          deductType === "gfunds"
-            ? { name: selectedUser.name, gfunds: amount }
-            : { name: selectedUser.name, points: amount }
-        ),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       setShowDeductModal(false);
@@ -2101,11 +2107,13 @@ export default function Admin() {
             </div>
 
             <div className="text-sm text-zinc-400">
-              Current {deductType === "gfunds" ? "gfunds" : "points"}:{" "}
+              Current {deductType === "gfunds" ? "gfunds" : deductType === "time" ? "time credit (mins)" : "points"}:{" "}
               <span className="font-semibold text-white">
                 {deductType === "gfunds"
                   ? `₱${selectedUser.gfunds || 0}`
-                  : selectedUser.points || 0}
+                  : deductType === "time"
+                    ? selectedUser.time_credit_minutes || 0
+                    : selectedUser.points || 0}
               </span>
             </div>
 
@@ -2119,27 +2127,36 @@ export default function Admin() {
               placeholder={
                 deductType === "gfunds"
                   ? "Enter gfunds amount (₱)"
-                  : "Enter points to deduct"
+                  : deductType === "time"
+                    ? "Enter minutes to deduct"
+                    : "Enter points to deduct"
               }
               value={deductAmount}
               onChange={setDeductAmount}
               className="w-full px-3.5 py-2.5 bg-[#1e293b] border border-white/5 rounded-xl text-sm placeholder-zinc-500 outline-none focus:border-red-500/60"
             />
             <div className="grid grid-cols-5 gap-2">
-              {QUICK_AMOUNTS.map((v) => (
-                <button
-                  key={`d-${v}`}
-                  type="button"
-                  onClick={() => setDeductAmount(String(v))}
-                  className={`py-2 rounded-xl text-xs font-medium transition-colors ${
-                    (Number(deductAmount) || 0) === v
-                      ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white"
-                      : "bg-zinc-800/70 text-zinc-400 hover:text-white"
-                  }`}
-                >
-                  {v}
-                </button>
-              ))}
+              {(["points", "gfunds", "time"] as const).map((t) => {
+                const amounts = t === "time" ? [10, 15, 20, 25, 30] : QUICK_AMOUNTS;
+                return (
+                  <div key={`d-${t}`}>
+                    {amounts.map((v) => (
+                      <button
+                        key={`d-${t}-${v}`}
+                        type="button"
+                        onClick={() => setDeductAmount(String(v))}
+                        className={`py-2 rounded-xl text-xs font-medium transition-colors ${
+                          (Number(deductAmount) || 0) === v
+                            ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white"
+                            : "bg-zinc-800/70 text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
 
             <button
