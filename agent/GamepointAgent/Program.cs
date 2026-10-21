@@ -1697,6 +1697,22 @@ try
             base.OnFormClosed(e);
         }
 
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                bool childFormsAllowClose = false;
+                if (_lockForm is not null && !_lockForm.IsDisposed && _lockForm.AllowClose)
+                    childFormsAllowClose = true;
+                if (_countdownForm is not null && !_countdownForm.IsDisposed && _countdownForm.AllowClose)
+                    childFormsAllowClose = true;
+
+                if (!childFormsAllowClose)
+                    e.Cancel = true;
+            }
+            base.OnFormClosing(e);
+        }
+
         private void ApplyStatus(Status st)
         {
             if (!st.Locked && DateTime.Now < _lockHeldUntil)
@@ -3868,6 +3884,7 @@ try
                 _btnShare.Enabled = true;
             }
         }
+
     }
 
     private sealed class CommandNoticeForm : Form
