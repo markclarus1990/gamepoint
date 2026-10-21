@@ -157,6 +157,14 @@ export class SessionRepository {
     if (error) throw error;
   }
 
+  async updateResumeSeconds(id: string, resumeSeconds: number): Promise<void> {
+    const { error } = await supabase
+      .from("sessions")
+      .update({ resume_seconds: resumeSeconds })
+      .eq("id", id);
+    if (error) throw error;
+  }
+
   async findAllWithMinutes(limit?: number, offset?: number): Promise<Pick<Session, "user_name" | "minutes">[]> {
     let query = supabase.from("sessions").select("user_name, minutes");
     if (limit) query = query.limit(limit);
