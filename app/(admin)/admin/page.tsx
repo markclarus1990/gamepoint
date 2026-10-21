@@ -2089,7 +2089,7 @@ export default function Admin() {
             </div>
 
             <div className="flex gap-2 bg-zinc-900/60 p-1 rounded-xl">
-              {(["points", "gfunds"] as const).map((t) => (
+              {(["points", "gfunds", "time"] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setDeductType(t)}
@@ -2101,7 +2101,7 @@ export default function Admin() {
                       : "text-zinc-500"
                   }`}
                 >
-                  {t === "points" ? "Points" : "Gfunds"}
+                  {t === "points" ? "Points" : t === "gfunds" ? "Gfunds" : "Time"}
                 </button>
               ))}
             </div>
